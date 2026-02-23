@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import SetupScreen from './components/SetupScreen.jsx'
 import StartScreen from './components/StartScreen.jsx'
 import ModeSelection from './components/ModeSelection.jsx'
@@ -8,43 +9,77 @@ import { hasApiKey } from './services/claudeApi.js'
 import { loadRoom, createRoom } from './utils/roomUtils.js'
 
 export default function App() {
-  const [screen, setScreen] = useState('loading') // loading | setup | start | mode | characters | chat
+  const { code: urlCode } = useParams()          // populated on /room/:code
+  const navigate = useNavigate()
+
+  const [screen, setScreen] = useState('loading')
   const [isPremium, setIsPremium] = useState(false)
   const [selectedMode, setSelectedMode] = useState(null)
   const [selectedCharacters, setSelectedCharacters] = useState([])
   const [currentRoom, setCurrentRoom] = useState(null)
   const [joinError, setJoinError] = useState('')
+  // Stash the URL code so we can load it after API key setup if needed
+  const [pendingCode, setPendingCode] = useState(urlCode || null)
 
+  // ── Initial load ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (hasApiKey()) {
-      setScreen('start')
-    } else {
-      setScreen('setup')
+    const init = async () => {
+      if (!hasApiKey()) {
+        // Keep pendingCode in state so handleApiKeySet can redirect after setup
+        if (urlCode) setPendingCode(urlCode)
+        setScreen('setup')
+        return
+      }
+
+      if (urlCode) {
+        // Direct link: load the room immediately
+        await loadAndEnterRoom(urlCode)
+      } else {
+        setScreen('start')
+      }
     }
-  }, [])
 
-  const handleApiKeySet = () => {
-    setScreen('start')
-  }
+    init()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // run once on mount only
 
-  const handleStartRoom = () => {
-    setScreen('mode')
-  }
-
-  const handleJoinRoom = async (code) => {
-    const upper = code.trim().toUpperCase()
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  const loadAndEnterRoom = async (code) => {
+    setScreen('loading')
     try {
-      const room = await loadRoom(upper)
+      const room = await loadRoom(code.trim().toUpperCase())
       if (room) {
         setCurrentRoom(room)
         setJoinError('')
         setScreen('chat')
       } else {
-        setJoinError(`Room "${upper}" not found. Check the code and try again.`)
+        setJoinError(`Room "${code.toUpperCase()}" not found. Check the code and try again.`)
+        navigate('/', { replace: true })
+        setScreen('start')
       }
     } catch {
-      setJoinError(`Could not load room "${upper}". Please try again.`)
+      setJoinError(`Could not load room "${code.toUpperCase()}". Please try again.`)
+      navigate('/', { replace: true })
+      setScreen('start')
     }
+  }
+
+  // ── Handlers ─────────────────────────────────────────────────────────────────
+  const handleApiKeySet = async () => {
+    if (pendingCode) {
+      setPendingCode(null)
+      await loadAndEnterRoom(pendingCode)
+    } else {
+      setScreen('start')
+    }
+  }
+
+  const handleStartRoom = () => setScreen('mode')
+
+  const handleJoinRoom = async (code) => {
+    await loadAndEnterRoom(code)
+    // If successful, also push the URL so it's shareable/bookmarkable
+    if (currentRoom) navigate(`/room/${code.toUpperCase()}`, { replace: true })
   }
 
   const handleSelectMode = (mode) => {
@@ -56,17 +91,18 @@ export default function App() {
     setSelectedCharacters(characters)
     const room = await createRoom(selectedMode, characters)
     setCurrentRoom(room)
+    // Push /room/:code into the browser history
+    navigate(`/room/${room.code}`, { replace: true })
     setScreen('chat')
   }
 
-  const handleUpdateRoom = (updatedRoom) => {
-    setCurrentRoom(updatedRoom)
-  }
+  const handleUpdateRoom = (updatedRoom) => setCurrentRoom(updatedRoom)
 
   const handleBackToStart = () => {
     setCurrentRoom(null)
     setSelectedMode(null)
     setSelectedCharacters([])
+    navigate('/', { replace: true })
     setScreen('start')
   }
 
@@ -75,6 +111,7 @@ export default function App() {
     setScreen('mode')
   }
 
+  // ── Render ───────────────────────────────────────────────────────────────────
   if (screen === 'loading') {
     return (
       <div className="loading-screen">
@@ -85,10 +122,9 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* Premium toggle — shown on all screens except setup */}
       {screen !== 'setup' && (
         <div className="premium-toggle-bar">
-          <span className="premium-toggle-label">
+          <span className={`premium-toggle-label ${isPremium ? 'active' : ''}`}>
             {isPremium ? '✦ Premium Mode' : 'Free Mode'}
           </span>
           <button

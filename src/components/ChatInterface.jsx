@@ -13,6 +13,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
   const [isLoading, setIsLoading] = useState(false)
   const [typingCharacter, setTypingCharacter] = useState(null)
   const [copied, setCopied] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
 
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
@@ -148,6 +149,14 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
     })
   }
 
+  const handleShareLink = () => {
+    const url = `${window.location.origin}/room/${room.code}`
+    navigator.clipboard.writeText(url).then(() => {
+      setLinkCopied(true)
+      setTimeout(() => setLinkCopied(false), 2500)
+    })
+  }
+
   const handleInputChange = (e) => {
     setInput(e.target.value)
     const ta = textareaRef.current
@@ -186,6 +195,14 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
               </div>
             ))}
           </div>
+
+          <button
+            className={`share-btn ${linkCopied ? 'share-btn-copied' : ''}`}
+            onClick={handleShareLink}
+            title="Copy shareable link"
+          >
+            {linkCopied ? '✓ Copied!' : '🔗 Share'}
+          </button>
 
           <div className="room-code-badge">
             <span className="room-code-label">Room</span>

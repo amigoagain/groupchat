@@ -875,6 +875,40 @@ input {
   color: var(--text-secondary);
 }
 
+.share-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+
+.share-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.share-btn-copied {
+  background: rgba(46, 213, 115, 0.12);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.share-btn-copied:hover {
+  background: rgba(46, 213, 115, 0.18);
+  border-color: var(--success);
+  color: var(--success);
+}
+
 .chat-participants {
   display: flex;
   align-items: center;
