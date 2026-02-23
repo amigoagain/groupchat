@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase.js'
+import { characters as builtInCharacters } from '../data/characters.js'
 
 const LS_KEY = 'groupchat_custom_characters'
 
@@ -13,7 +14,12 @@ function lsSave(chars) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(chars)) } catch {}
 }
 
+/**
+ * Map a Supabase row to the character shape used throughout the app.
+ * Handles both canonical/variant rows (seeded) and user-created rows.
+ */
 function rowToChar(row) {
+  const isUserCreated = !row.is_canonical && !row.verified && !row.variant_of
   return {
     id: row.id,
     name: row.name,
@@ -23,19 +29,65 @@ function rowToChar(row) {
     description: row.description || '',
     personality: row.personality,
     personalityText: row.personality_text || '',
-    isCustom: true,
+    // Flags for UI rendering
+    isCustom: isUserCreated,          // shows edit/delete buttons
+    isCanonical: !!row.is_canonical,  // gold ✦ badge
+    isVariant: !!row.variant_of,      // ↗ badge
+    variantOf: row.variant_of || null,
+    verified: !!row.verified,
+    tags: row.tags || [],
+    createdBy: row.created_by || null,
+    upvotes: row.upvotes || 0,
   }
 }
 
+/**
+ * Load ALL characters from Supabase (canonical, variants, user-created).
+ * Falls back to built-in code characters + localStorage if Supabase unavailable.
+ */
+export async function loadAllCharacters() {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabase
+        .from('custom_characters')
+        .select('*')
+        .order('is_canonical', { ascending: false })
+        .order('created_at', { ascending: true })
+
+      if (!error && data && data.length > 0) {
+        return data.map(rowToChar)
+      }
+    } catch (err) {
+      console.warn('Supabase loadAllCharacters failed, using fallback:', err)
+    }
+  }
+
+  // Offline fallback: built-in code chars + localStorage custom chars
+  const customChars = lsLoad()
+  return [
+    ...builtInCharacters.map(c => ({ ...c, isCustom: false, isCanonical: false, isVariant: false, verified: false, tags: [] })),
+    ...customChars,
+  ]
+}
+
+/**
+ * Load only user-created custom characters (for backwards compat).
+ */
 export async function loadCustomCharacters() {
   if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabase
         .from('custom_characters')
         .select('*')
+        .eq('is_canonical', false)
+        .is('variant_of', null)
         .order('created_at', { ascending: true })
+
       if (!error && data) {
-        const chars = data.map(rowToChar)
+        // Filter to only user-created (not verified seeded characters)
+        const chars = data
+          .filter(row => !row.verified)
+          .map(rowToChar)
         lsSave(chars)
         return chars
       }
@@ -61,6 +113,10 @@ export async function saveCustomCharacter(character) {
             description: character.description || '',
             personality: character.personality,
             personality_text: character.personalityText || '',
+            is_canonical: false,
+            verified: false,
+            created_by: character.createdBy || null,
+            tags: character.tags || [],
           },
           { onConflict: 'id' }
         )
@@ -123,5 +179,9 @@ export function buildCustomCharacter({ id, name, title, personalityText, color }
     personality,
     personalityText: trimmedPersonality,
     isCustom: true,
+    isCanonical: false,
+    isVariant: false,
+    verified: false,
+    tags: [],
   }
 }

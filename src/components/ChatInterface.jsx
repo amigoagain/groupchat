@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import MessageBubble from './MessageBubble.jsx'
 import TypingIndicator from './TypingIndicator.jsx'
-import { getCharacterResponse } from '../services/claudeApi.js'
+import UsernameModal from './UsernameModal.jsx'
+import { getCharacterResponse, generateInviteMessage } from '../services/claudeApi.js'
 import { updateRoomMessages, fetchRoomMessages, saveRoom } from '../utils/roomUtils.js'
 import { isSupabaseConfigured } from '../lib/supabase.js'
+import { getUsername, setUsername } from '../utils/username.js'
 
 const POLL_INTERVAL_MS = 3000
 
@@ -13,7 +15,8 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
   const [isLoading, setIsLoading] = useState(false)
   const [typingCharacter, setTypingCharacter] = useState(null)
   const [copied, setCopied] = useState(false)
-  const [linkCopied, setLinkCopied] = useState(false)
+  const [shareState, setShareState] = useState('idle') // 'idle' | 'generating' | 'copied' | 'shared'
+  const [showRenameModal, setShowRenameModal] = useState(false)
 
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
@@ -35,14 +38,10 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
     if (!isSupabaseConfigured) return
 
     const poll = async () => {
-      // Don't overwrite local state while we're actively generating responses
       if (isLoadingRef.current) return
-
       const remoteMessages = await fetchRoomMessages(room.code)
       if (!remoteMessages) return
-
       setMessages(prev => {
-        // Only update if remote has strictly more messages (append-only guard)
         if (remoteMessages.length > prev.length) return remoteMessages
         return prev
       })
@@ -64,9 +63,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
       timestamp: new Date().toISOString(),
     }
 
-    // Snapshot conversation before this turn for API context
     const conversationSnapshot = [...messagesRef.current]
-    // Track all new messages built during this round
     const newMessages = [userMessage]
 
     setMessages(prev => [...prev, userMessage])
@@ -104,7 +101,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
         setMessages(prev => [...prev, charMsg])
 
         // Push each character's response to Supabase progressively
-        // so other users on the poll see messages appear one by one
         updateRoomMessages(room.code, [...conversationSnapshot, ...newMessages])
           .catch(err => console.warn('Background Supabase update failed:', err))
 
@@ -131,7 +127,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
     setTypingCharacter(null)
     setIsLoading(false)
 
-    // Final authoritative save
     const finalMessages = [...conversationSnapshot, ...newMessages]
     const updatedRoom = { ...room, messages: finalMessages }
     saveRoom(room.code, updatedRoom)
@@ -149,12 +144,48 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
     })
   }
 
-  const handleShareLink = () => {
+  // ── Smart share: AI invite message + native share sheet ──────────────────────
+  const handleShareLink = async () => {
+    if (shareState === 'generating') return
+
     const url = `${window.location.origin}/room/${room.code}`
-    navigator.clipboard.writeText(url).then(() => {
-      setLinkCopied(true)
-      setTimeout(() => setLinkCopied(false), 2500)
-    })
+    const username = getUsername() || 'Someone'
+
+    setShareState('generating')
+
+    try {
+      const inviteText = await generateInviteMessage(username, room.characters, messagesRef.current)
+      const fullMessage = `${inviteText} ${url}`
+
+      if (navigator.share) {
+        // Mobile: native share sheet
+        await navigator.share({ text: fullMessage })
+        setShareState('shared')
+      } else {
+        // Desktop: copy to clipboard
+        await navigator.clipboard.writeText(fullMessage)
+        setShareState('copied')
+      }
+      setTimeout(() => setShareState('idle'), 3000)
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        // Generation or share failed — fall back to plain URL
+        try {
+          await navigator.clipboard.writeText(url)
+          setShareState('copied')
+          setTimeout(() => setShareState('idle'), 3000)
+        } catch {
+          setShareState('idle')
+        }
+      } else {
+        setShareState('idle')
+      }
+    }
+  }
+
+  const handleRenameSave = (newName) => {
+    if (newName) setUsername(newName)
+    setShowRenameModal(false)
   }
 
   const handleInputChange = (e) => {
@@ -167,6 +198,13 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
   }
 
   const isEmpty = messages.length === 0
+
+  const shareLabel = {
+    idle: '🔗 Share',
+    generating: '✦ Writing…',
+    copied: '✓ Copied!',
+    shared: '✓ Shared!',
+  }[shareState]
 
   return (
     <div className="chat-screen">
@@ -197,11 +235,22 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
           </div>
 
           <button
-            className={`share-btn ${linkCopied ? 'share-btn-copied' : ''}`}
+            className={`share-btn ${shareState !== 'idle' ? `share-btn-${shareState}` : ''}`}
             onClick={handleShareLink}
-            title="Copy shareable link"
+            disabled={shareState === 'generating'}
+            title="Share room link with an AI-generated invite"
           >
-            {linkCopied ? '✓ Copied!' : '🔗 Share'}
+            {shareState === 'generating' && <span className="share-spinner" />}
+            {shareLabel}
+          </button>
+
+          {/* Settings: rename yourself */}
+          <button
+            className="settings-btn"
+            onClick={() => setShowRenameModal(true)}
+            title={`Your name: ${getUsername() || 'Not set'} — click to change`}
+          >
+            ⚙
           </button>
 
           <div className="room-code-badge">
@@ -279,6 +328,11 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
           {isSupabaseConfigured && <span className="chat-input-hint-sync"> · Live sync on</span>}
         </div>
       </div>
+
+      {/* Rename modal */}
+      {showRenameModal && (
+        <UsernameModal onSave={handleRenameSave} isRename={true} />
+      )}
     </div>
   )
 }

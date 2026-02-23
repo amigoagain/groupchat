@@ -177,6 +177,53 @@ export function hasApiKey() {
 }
 
 /**
+ * Generate a short, creative, SMS-friendly invite message for sharing a room.
+ * Uses navigator.share on mobile; falls back to clipboard copy on desktop.
+ *
+ * @param {string} username - The inviting user's name
+ * @param {Array}  characters - Characters in the room
+ * @param {Array}  messages - Current conversation messages (for topic context)
+ * @returns {Promise<string>} - Invite message text (no URL — caller appends it)
+ */
+export async function generateInviteMessage(username, characters, messages) {
+  const charNames = characters.map(c => c.name).join(', ')
+
+  // Pull in recent character responses for topic context
+  const charMsgs = (messages || []).filter(m => m.type === 'character')
+  let topicContext = 'No conversation yet — the room was just created.'
+  if (charMsgs.length >= 2) {
+    const snippets = charMsgs
+      .slice(-3)
+      .map(m => `${m.characterName}: "${m.content.slice(0, 80).replace(/\n/g, ' ')}"`)
+      .join(' | ')
+    topicContext = `Recent conversation: ${snippets}`
+  }
+
+  const systemPrompt =
+    `You write short, punchy, creative invite messages for a group chat app where users ` +
+    `converse with AI versions of historical figures and thinkers. ` +
+    `The messages should be fun, casual, and make people want to click the link. ` +
+    `Write from the inviting user's perspective (first or third person). ` +
+    `Do NOT include a URL — the caller will append it. Keep it under 130 characters.`
+
+  const userPrompt =
+    `User's name: ${username}\n` +
+    `Characters in the room: ${charNames}\n` +
+    `${topicContext}\n\n` +
+    `Generate exactly ONE invite message under 130 characters. ` +
+    `No URL in the message. No quotation marks wrapping it. Just the text.`
+
+  const text = await callAnthropicAPI(
+    systemPrompt,
+    [{ role: 'user', content: userPrompt }],
+    1 // single retry — it's a quick creative call
+  )
+
+  // Strip any wrapping quotes Claude occasionally adds
+  return text.trim().replace(/^["""'']+|["""'']+$/g, '')
+}
+
+/**
  * Ask Claude to generate a character profile for any given person/concept name.
  * Returns { title, personality, color } ready to populate the create-character form.
  */

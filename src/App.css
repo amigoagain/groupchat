@@ -2073,3 +2073,308 @@ input {
   color: var(--success);
   opacity: 0.8;
 }
+
+/* ============================================================
+   USERNAME MODAL
+   ============================================================ */
+
+.username-modal-overlay {
+  z-index: 2000; /* above everything, including the create-character modal */
+}
+
+.username-modal-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xl);
+  padding: 40px 36px 32px;
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  box-shadow: var(--shadow-lg), 0 0 60px rgba(0, 0, 0, 0.5);
+  animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.username-modal-icon {
+  font-size: 44px;
+  margin-bottom: 16px;
+}
+
+.username-modal-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.4px;
+  margin-bottom: 8px;
+}
+
+.username-modal-sub {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 28px;
+  line-height: 1.5;
+}
+
+.username-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.username-input {
+  width: 100%;
+  padding: 13px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 500;
+  text-align: center;
+  outline: none;
+  transition: var(--transition);
+}
+
+.username-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.username-input::placeholder {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.username-error {
+  font-size: 13px;
+  color: var(--error);
+  text-align: center;
+  margin-top: -4px;
+}
+
+.username-form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.username-save-btn {
+  flex: 1;
+  padding: 12px 24px;
+  background: var(--accent);
+  color: white;
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-weight: 700;
+  transition: var(--transition);
+  box-shadow: 0 4px 16px rgba(79, 124, 255, 0.3);
+}
+
+.username-save-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(79, 124, 255, 0.4);
+}
+
+.username-cancel-btn {
+  padding: 12px 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  transition: var(--transition);
+}
+
+.username-cancel-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+
+/* ============================================================
+   SHARE BUTTON (smart AI invite)
+   ============================================================ */
+
+.share-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+  min-width: 88px;
+  justify-content: center;
+}
+
+.share-btn:hover:not(:disabled) {
+  background: var(--bg-card-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.share-btn:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.share-btn-generating {
+  background: var(--bg-card);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.share-btn-copied,
+.share-btn-shared {
+  background: rgba(46, 213, 115, 0.12);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.share-btn-copied:hover,
+.share-btn-shared:hover {
+  background: rgba(46, 213, 115, 0.18);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.share-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid transparent;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   SETTINGS BUTTON (rename)
+   ============================================================ */
+
+.settings-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+
+.settings-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-light);
+  color: var(--text-secondary);
+  transform: rotate(20deg);
+}
+
+/* ============================================================
+   CHARACTER BADGES (verified / variant)
+   ============================================================ */
+
+.char-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  min-height: 18px;
+}
+
+.char-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.char-badge-canonical {
+  background: rgba(255, 215, 0, 0.12);
+  color: #c9a800;
+  border: 1px solid rgba(255, 215, 0, 0.25);
+}
+
+.char-badge-variant {
+  background: rgba(79, 124, 255, 0.1);
+  color: var(--accent);
+  border: 1px solid rgba(79, 124, 255, 0.2);
+}
+
+/* ============================================================
+   CHARACTER FILTER TABS
+   ============================================================ */
+
+.char-filter-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 0 24px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.char-filter-tabs::-webkit-scrollbar { display: none; }
+
+.char-filter-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: var(--transition);
+  cursor: pointer;
+}
+
+.char-filter-tab:hover {
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+
+.char-filter-tab.active {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.char-filter-count {
+  background: var(--bg-card);
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.char-filter-tab.active .char-filter-count {
+  background: rgba(79, 124, 255, 0.15);
+  color: var(--accent);
+}

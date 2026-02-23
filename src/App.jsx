@@ -5,11 +5,13 @@ import StartScreen from './components/StartScreen.jsx'
 import ModeSelection from './components/ModeSelection.jsx'
 import CharacterSelection from './components/CharacterSelection.jsx'
 import ChatInterface from './components/ChatInterface.jsx'
+import UsernameModal from './components/UsernameModal.jsx'
 import { hasApiKey } from './services/claudeApi.js'
 import { loadRoom, createRoom } from './utils/roomUtils.js'
+import { hasUsername, setUsername } from './utils/username.js'
 
 export default function App() {
-  const { code: urlCode } = useParams()          // populated on /room/:code
+  const { code: urlCode } = useParams()
   const navigate = useNavigate()
 
   const [screen, setScreen] = useState('loading')
@@ -18,30 +20,10 @@ export default function App() {
   const [selectedCharacters, setSelectedCharacters] = useState([])
   const [currentRoom, setCurrentRoom] = useState(null)
   const [joinError, setJoinError] = useState('')
-  // Stash the URL code so we can load it after API key setup if needed
   const [pendingCode, setPendingCode] = useState(urlCode || null)
 
-  // ── Initial load ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const init = async () => {
-      if (!hasApiKey()) {
-        // Keep pendingCode in state so handleApiKeySet can redirect after setup
-        if (urlCode) setPendingCode(urlCode)
-        setScreen('setup')
-        return
-      }
-
-      if (urlCode) {
-        // Direct link: load the room immediately
-        await loadAndEnterRoom(urlCode)
-      } else {
-        setScreen('start')
-      }
-    }
-
-    init()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // run once on mount only
+  // Username gate: true means we need to collect the name first
+  const [needsUsername, setNeedsUsername] = useState(!hasUsername())
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
   const loadAndEnterRoom = async (code) => {
@@ -64,11 +46,46 @@ export default function App() {
     }
   }
 
+  // ── Initial load — only runs once username is ready ──────────────────────────
+  useEffect(() => {
+    if (needsUsername) {
+      // Keep loading screen visible behind the username modal
+      setScreen('loading')
+      return
+    }
+
+    const init = async () => {
+      if (!hasApiKey()) {
+        if (urlCode) setPendingCode(urlCode)
+        setScreen('setup')
+        return
+      }
+
+      if (urlCode || pendingCode) {
+        const code = urlCode || pendingCode
+        setPendingCode(null)
+        await loadAndEnterRoom(code)
+      } else {
+        setScreen('start')
+      }
+    }
+
+    init()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsUsername]) // re-runs when username modal is dismissed
+
   // ── Handlers ─────────────────────────────────────────────────────────────────
+  const handleUsernameSave = (name) => {
+    setUsername(name)
+    setNeedsUsername(false)
+    // init() will fire via the needsUsername effect above
+  }
+
   const handleApiKeySet = async () => {
     if (pendingCode) {
+      const code = pendingCode
       setPendingCode(null)
-      await loadAndEnterRoom(pendingCode)
+      await loadAndEnterRoom(code)
     } else {
       setScreen('start')
     }
@@ -78,7 +95,6 @@ export default function App() {
 
   const handleJoinRoom = async (code) => {
     await loadAndEnterRoom(code)
-    // If successful, also push the URL so it's shareable/bookmarkable
     if (currentRoom) navigate(`/room/${code.toUpperCase()}`, { replace: true })
   }
 
@@ -91,7 +107,6 @@ export default function App() {
     setSelectedCharacters(characters)
     const room = await createRoom(selectedMode, characters)
     setCurrentRoom(room)
-    // Push /room/:code into the browser history
     navigate(`/room/${room.code}`, { replace: true })
     setScreen('chat')
   }
@@ -112,17 +127,20 @@ export default function App() {
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
-  if (screen === 'loading') {
-    return (
-      <div className="loading-screen">
-        <div className="loading-spinner" />
-      </div>
-    )
-  }
-
   return (
     <div className="app">
-      {screen !== 'setup' && (
+      {/* Username modal — shown as an overlay before anything else on first visit */}
+      {needsUsername && (
+        <UsernameModal onSave={handleUsernameSave} isRename={false} />
+      )}
+
+      {screen === 'loading' && !needsUsername && (
+        <div className="loading-screen">
+          <div className="loading-spinner" />
+        </div>
+      )}
+
+      {screen !== 'setup' && screen !== 'loading' && (
         <div className="premium-toggle-bar">
           <span className={`premium-toggle-label ${isPremium ? 'active' : ''}`}>
             {isPremium ? '✦ Premium Mode' : 'Free Mode'}
