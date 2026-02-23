@@ -1,73 +1,41 @@
-const STORAGE_PREFIX = 'groupchat_room_'
+import { supabase, isSupabaseConfigured } from '../lib/supabase.js'
 
-/**
- * Generate a random 6-character alphanumeric room code.
- */
+const LS_PREFIX = 'groupchat_room_'
+
+// ─── helpers ────────────────────────────────────────────────────────────────
+
 export function generateRoomCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // Omit confusing chars (0, O, 1, I)
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let code = ''
-  for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
+  for (let i = 0; i < 6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length))
   return code
 }
 
-/**
- * Save a room to localStorage.
- * @param {string} code - Room code
- * @param {object} roomData - { code, mode, characters, messages, createdAt }
- */
-export function saveRoom(code, roomData) {
-  try {
-    localStorage.setItem(STORAGE_PREFIX + code, JSON.stringify(roomData))
-  } catch (err) {
-    console.error('Failed to save room:', err)
-  }
+export function formatTime(isoString) {
+  return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-/**
- * Load a room from localStorage by code.
- * @param {string} code - Room code (case insensitive)
- * @returns {object|null} - Room data or null if not found
- */
-export function loadRoom(code) {
-  try {
-    const data = localStorage.getItem(STORAGE_PREFIX + code.toUpperCase())
-    return data ? JSON.parse(data) : null
-  } catch (err) {
-    console.error('Failed to load room:', err)
-    return null
-  }
+// ─── localStorage helpers ────────────────────────────────────────────────────
+
+function lsSave(code, roomData) {
+  try { localStorage.setItem(LS_PREFIX + code, JSON.stringify(roomData)) } catch {}
 }
 
-/**
- * List all saved rooms from localStorage.
- * @returns {Array} - Array of room objects sorted by createdAt descending
- */
-export function listRooms() {
+function lsLoad(code) {
   try {
-    const rooms = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (key && key.startsWith(STORAGE_PREFIX)) {
-        const data = localStorage.getItem(key)
-        if (data) {
-          try {
-            rooms.push(JSON.parse(data))
-          } catch {}
-        }
-      }
-    }
-    return rooms.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-  } catch {
-    return []
-  }
+    const raw = localStorage.getItem(LS_PREFIX + code.toUpperCase())
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
 }
 
+// ─── public API ──────────────────────────────────────────────────────────────
+
 /**
- * Create a new room object.
+ * Create a new room. Saves to Supabase (primary) and localStorage (fallback).
+ * Returns the room object synchronously after the localStorage write; the
+ * Supabase insert runs in the background.
  */
-export function createRoom(mode, characters) {
+export async function createRoom(mode, characters) {
   const code = generateRoomCode()
   const room = {
     code,
@@ -76,14 +44,104 @@ export function createRoom(mode, characters) {
     messages: [],
     createdAt: new Date().toISOString(),
   }
-  saveRoom(code, room)
+
+  // Write to localStorage immediately so the UI can proceed
+  lsSave(code, room)
+
+  if (isSupabaseConfigured) {
+    try {
+      const { error } = await supabase.from('rooms').insert({
+        code,
+        mode,
+        characters,
+        messages: [],
+      })
+      if (error) console.warn('Supabase createRoom error:', error.message)
+    } catch (err) {
+      console.warn('Supabase createRoom failed, using localStorage only:', err)
+    }
+  }
+
   return room
 }
 
 /**
- * Format a timestamp for display.
+ * Load a room by code. Tries Supabase first, falls back to localStorage.
  */
-export function formatTime(isoString) {
-  const date = new Date(isoString)
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+export async function loadRoom(code) {
+  const upper = code.trim().toUpperCase()
+
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabase
+        .from('rooms')
+        .select('*')
+        .eq('code', upper)
+        .single()
+
+      if (!error && data) {
+        const room = {
+          code: data.code,
+          mode: data.mode,
+          characters: data.characters,
+          messages: data.messages || [],
+          createdAt: data.created_at,
+        }
+        lsSave(upper, room) // keep local cache fresh
+        return room
+      }
+    } catch (err) {
+      console.warn('Supabase loadRoom failed, trying localStorage:', err)
+    }
+  }
+
+  return lsLoad(upper)
+}
+
+/**
+ * Update just the messages array for a room in both Supabase and localStorage.
+ * Safe to fire-and-forget (won't throw).
+ */
+export async function updateRoomMessages(code, messages) {
+  const upper = code.toUpperCase()
+
+  // Always keep localStorage in sync
+  const cached = lsLoad(upper)
+  if (cached) lsSave(upper, { ...cached, messages })
+
+  if (isSupabaseConfigured) {
+    try {
+      const { error } = await supabase
+        .from('rooms')
+        .update({ messages })
+        .eq('code', upper)
+      if (error) console.warn('Supabase updateRoomMessages error:', error.message)
+    } catch (err) {
+      console.warn('Supabase updateRoomMessages failed:', err)
+    }
+  }
+}
+
+/**
+ * Fetch only the messages array from Supabase (used for polling).
+ * Returns null if Supabase is unavailable or the room doesn't exist.
+ */
+export async function fetchRoomMessages(code) {
+  if (!isSupabaseConfigured) return null
+  try {
+    const { data, error } = await supabase
+      .from('rooms')
+      .select('messages')
+      .eq('code', code.toUpperCase())
+      .single()
+    if (error || !data) return null
+    return data.messages || null
+  } catch {
+    return null
+  }
+}
+
+// Kept for legacy callers — synchronous localStorage-only write
+export function saveRoom(code, roomData) {
+  lsSave(code.toUpperCase(), roomData)
 }

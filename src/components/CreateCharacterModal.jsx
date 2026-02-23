@@ -1,29 +1,24 @@
 import { useState, useEffect, useRef } from 'react'
 import { buildCustomCharacter } from '../utils/customCharacters.js'
+import { generateCharacterProfile } from '../services/claudeApi.js'
 
-// Preset accent colours that match the app's palette
 const PRESET_COLORS = [
-  '#8B7CF8', // violet
-  '#FF6B35', // orange
-  '#FFD700', // gold
-  '#FF4757', // red
-  '#2ED573', // green
-  '#B341FF', // purple
-  '#3498DB', // blue
-  '#FF6B8A', // rose
-  '#00D2D3', // teal
-  '#00E5FF', // cyan
-  '#FF4FC8', // magenta
-  '#F0A500', // amber
-  '#E84393', // hot pink
-  '#7FDBFF', // sky
-  '#01FF70', // lime
-  '#FF851B', // coral
+  '#8B7CF8', '#FF6B35', '#FFD700', '#FF4757',
+  '#2ED573', '#B341FF', '#3498DB', '#FF6B8A',
+  '#A8B8C8', '#00D2D3', '#00E5FF', '#FF4FC8',
+  '#F0A500', '#E84393', '#7FDBFF', '#01FF70',
 ]
 
 export default function CreateCharacterModal({ character, onSave, onDelete, onClose }) {
   const isEditing = Boolean(character)
 
+  // ── Generate state ──────────────────────────────────────────────────────────
+  const [generateName, setGenerateName] = useState('')
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [generateError, setGenerateError] = useState('')
+  const [generatedFrom, setGeneratedFrom] = useState('')
+
+  // ── Form state ──────────────────────────────────────────────────────────────
   const [name, setName] = useState(character?.name || '')
   const [title, setTitle] = useState(character?.title || '')
   const [personalityText, setPersonalityText] = useState(character?.personalityText || '')
@@ -33,24 +28,54 @@ export default function CreateCharacterModal({ character, onSave, onDelete, onCl
 
   const overlayRef = useRef(null)
   const nameRef = useRef(null)
+  const generateInputRef = useRef(null)
 
-  // Focus name field on open
   useEffect(() => {
-    setTimeout(() => nameRef.current?.focus(), 60)
+    setTimeout(() => generateInputRef.current?.focus(), 60)
   }, [])
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
 
-  // Prevent body scroll while modal is open
   useEffect(() => {
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = '' }
   }, [])
+
+  // ── Generate handler ────────────────────────────────────────────────────────
+
+  const handleGenerate = async () => {
+    const nameToGenerate = generateName.trim()
+    if (!nameToGenerate || isGenerating) return
+
+    setIsGenerating(true)
+    setGenerateError('')
+    setGeneratedFrom('')
+
+    try {
+      const profile = await generateCharacterProfile(nameToGenerate)
+      setTitle(profile.title)
+      setPersonalityText(profile.personality)
+      setColor(profile.color)
+      if (!name.trim()) setName(nameToGenerate)
+      setGeneratedFrom(nameToGenerate)
+      setErrors({})
+      setTimeout(() => nameRef.current?.focus(), 80)
+    } catch (err) {
+      setGenerateError(err.message || 'Generation failed. Please try again.')
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  const handleGenerateKeyDown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); handleGenerate() }
+  }
+
+  // ── Save / Delete ───────────────────────────────────────────────────────────
 
   const validate = () => {
     const errs = {}
@@ -64,17 +89,8 @@ export default function CreateCharacterModal({ character, onSave, onDelete, onCl
 
   const handleSave = () => {
     const errs = validate()
-    if (Object.keys(errs).length > 0) {
-      setErrors(errs)
-      return
-    }
-    const built = buildCustomCharacter({
-      id: character?.id,
-      name,
-      title,
-      personalityText,
-      color,
-    })
+    if (Object.keys(errs).length > 0) { setErrors(errs); return }
+    const built = buildCustomCharacter({ id: character?.id, name, title, personalityText, color })
     onSave(built)
   }
 
@@ -97,7 +113,41 @@ export default function CreateCharacterModal({ character, onSave, onDelete, onCl
         </div>
 
         <div className="modal-body">
-          {/* Live avatar preview */}
+
+          {/* ── AI Generate section ── */}
+          <div className="generate-section">
+            <div className="generate-label">✦ Generate from a famous person</div>
+            <div className="generate-row">
+              <input
+                ref={generateInputRef}
+                className="generate-input"
+                type="text"
+                placeholder="Enter any name e.g. Jean-Paul Sartre"
+                value={generateName}
+                onChange={e => { setGenerateName(e.target.value); setGenerateError('') }}
+                onKeyDown={handleGenerateKeyDown}
+                disabled={isGenerating}
+              />
+              <button
+                className="generate-btn"
+                onClick={handleGenerate}
+                disabled={!generateName.trim() || isGenerating}
+                type="button"
+              >
+                {isGenerating ? <span className="btn-spinner" /> : 'Generate'}
+              </button>
+            </div>
+            {generateError && <div className="generate-error">{generateError}</div>}
+            {generatedFrom && !generateError && (
+              <div className="generate-success">
+                ✓ Fields filled from &ldquo;{generatedFrom}&rdquo; — edit anything before saving
+              </div>
+            )}
+          </div>
+
+          <div className="generate-divider"><span>or fill in manually</span></div>
+
+          {/* Live preview */}
           <div className="modal-preview">
             <div className="modal-preview-avatar" style={{ background: color }}>
               {avatarInitial}
@@ -108,10 +158,9 @@ export default function CreateCharacterModal({ character, onSave, onDelete, onCl
             </div>
           </div>
 
-          {/* Form */}
+          {/* Form fields */}
           <div className="modal-form">
 
-            {/* Name */}
             <div className="form-group">
               <label className="form-label">Name <span className="form-required">*</span></label>
               <input
@@ -126,7 +175,6 @@ export default function CreateCharacterModal({ character, onSave, onDelete, onCl
               {errors.name && <div className="form-error">{errors.name}</div>}
             </div>
 
-            {/* Title */}
             <div className="form-group">
               <label className="form-label">Title / Role <span className="form-required">*</span></label>
               <input
@@ -140,7 +188,6 @@ export default function CreateCharacterModal({ character, onSave, onDelete, onCl
               {errors.title && <div className="form-error">{errors.title}</div>}
             </div>
 
-            {/* Personality */}
             <div className="form-group">
               <label className="form-label">
                 Personality <span className="form-required">*</span>
@@ -150,18 +197,15 @@ export default function CreateCharacterModal({ character, onSave, onDelete, onCl
               </div>
               <textarea
                 className={`form-textarea ${errors.personality ? 'form-input-error' : ''}`}
-                placeholder={`e.g. Speaks with calm authority and dry wit. Always grounds advice in first-hand experience. Fond of asking "What would you regret not doing?" Believes discipline is the foundation of freedom. References Stoic philosophy without being preachy.`}
+                placeholder="e.g. You speak with calm authority and dry wit. You always ground advice in first-hand experience. You believe discipline is the foundation of freedom."
                 value={personalityText}
                 rows={5}
                 onChange={e => { setPersonalityText(e.target.value); setErrors(p => ({ ...p, personality: '' })) }}
               />
-              <div className="form-char-count">
-                {personalityText.length} characters
-              </div>
+              <div className="form-char-count">{personalityText.length} characters</div>
               {errors.personality && <div className="form-error">{errors.personality}</div>}
             </div>
 
-            {/* Color */}
             <div className="form-group">
               <label className="form-label">Accent Color</label>
               <div className="form-hint">Used for the avatar and message bubbles.</div>
@@ -203,30 +247,20 @@ export default function CreateCharacterModal({ character, onSave, onDelete, onCl
               {deleteConfirm ? (
                 <div className="modal-delete-confirm">
                   <span>Delete this character?</span>
-                  <button
-                    className="modal-btn-danger"
-                    onClick={() => onDelete(character.id)}
-                  >
+                  <button className="modal-btn-danger" onClick={() => onDelete(character.id)}>
                     Yes, delete
                   </button>
-                  <button
-                    className="modal-btn-ghost"
-                    onClick={() => setDeleteConfirm(false)}
-                  >
+                  <button className="modal-btn-ghost" onClick={() => setDeleteConfirm(false)}>
                     Cancel
                   </button>
                 </div>
               ) : (
-                <button
-                  className="modal-btn-delete"
-                  onClick={() => setDeleteConfirm(true)}
-                >
+                <button className="modal-btn-delete" onClick={() => setDeleteConfirm(true)}>
                   🗑 Delete character
                 </button>
               )}
             </div>
           )}
-
           <div className="modal-actions">
             <button className="modal-btn-cancel" onClick={onClose}>Cancel</button>
             <button className="modal-btn-save" onClick={handleSave}>

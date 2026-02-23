@@ -31,14 +31,19 @@ export default function App() {
     setScreen('mode')
   }
 
-  const handleJoinRoom = (code) => {
-    const room = loadRoom(code.trim().toUpperCase())
-    if (room) {
-      setCurrentRoom(room)
-      setJoinError('')
-      setScreen('chat')
-    } else {
-      setJoinError(`Room "${code.toUpperCase()}" not found. Check the code and try again.`)
+  const handleJoinRoom = async (code) => {
+    const upper = code.trim().toUpperCase()
+    try {
+      const room = await loadRoom(upper)
+      if (room) {
+        setCurrentRoom(room)
+        setJoinError('')
+        setScreen('chat')
+      } else {
+        setJoinError(`Room "${upper}" not found. Check the code and try again.`)
+      }
+    } catch {
+      setJoinError(`Could not load room "${upper}". Please try again.`)
     }
   }
 
@@ -47,9 +52,9 @@ export default function App() {
     setScreen('characters')
   }
 
-  const handleStartChat = (characters) => {
+  const handleStartChat = async (characters) => {
     setSelectedCharacters(characters)
-    const room = createRoom(selectedMode, characters)
+    const room = await createRoom(selectedMode, characters)
     setCurrentRoom(room)
     setScreen('chat')
   }

@@ -1870,3 +1870,172 @@ input {
     text-align: center;
   }
 }
+
+/* ============================================================
+   AI GENERATE FEATURE
+   ============================================================ */
+
+.generate-section {
+  background: linear-gradient(135deg, rgba(79, 124, 255, 0.07), rgba(167, 139, 250, 0.07));
+  border: 1px solid rgba(79, 124, 255, 0.2);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  margin-bottom: 4px;
+}
+
+.generate-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.4px;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+
+.generate-row {
+  display: flex;
+  gap: 8px;
+}
+
+.generate-input {
+  flex: 1;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  transition: var(--transition);
+  outline: none;
+}
+
+.generate-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.generate-input:disabled {
+  opacity: 0.6;
+}
+
+.generate-input::placeholder {
+  color: var(--text-muted);
+}
+
+.generate-btn {
+  padding: 10px 18px;
+  background: var(--accent);
+  color: white;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: var(--radius-md);
+  white-space: nowrap;
+  min-width: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+
+.generate-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.generate-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Spinner inside the generate button */
+.btn-spinner {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.generate-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--error);
+  font-weight: 500;
+}
+
+.generate-success {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--success);
+  font-weight: 500;
+}
+
+/* Divider between generate and manual sections */
+.generate-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.generate-divider::before,
+.generate-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ============================================================
+   CHARACTER GRID LOADING STATE
+   ============================================================ */
+
+.character-card-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 120px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.char-loading-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   CHAT SYNC INDICATORS
+   ============================================================ */
+
+.chat-sync-badge {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 5px 14px;
+  margin-top: 12px;
+}
+
+.chat-input-hint-sync {
+  color: var(--success);
+  opacity: 0.8;
+}

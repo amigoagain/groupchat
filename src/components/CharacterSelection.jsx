@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { characters as builtInCharacters } from '../data/characters.js'
 import {
   loadCustomCharacters,
@@ -7,14 +7,23 @@ import {
 } from '../utils/customCharacters.js'
 import CreateCharacterModal from './CreateCharacterModal.jsx'
 
-const MIN_CHARS = 2
+const MIN_CHARS = 1  // Minimum 1 character required
 const MAX_CHARS = 6
 
 export default function CharacterSelection({ onStartChat, onBack, selectedMode }) {
   const [selected, setSelected] = useState([])
   const [search, setSearch] = useState('')
-  const [customCharacters, setCustomCharacters] = useState(() => loadCustomCharacters())
-  const [modalState, setModalState] = useState(null) // null | { mode: 'create' | 'edit', character?: object }
+  const [customCharacters, setCustomCharacters] = useState([])
+  const [customCharsLoading, setCustomCharsLoading] = useState(true)
+  const [modalState, setModalState] = useState(null)
+
+  // Load custom characters async from Supabase (with localStorage fallback)
+  useEffect(() => {
+    loadCustomCharacters()
+      .then(chars => setCustomCharacters(chars))
+      .catch(() => setCustomCharacters([]))
+      .finally(() => setCustomCharsLoading(false))
+  }, [])
 
   const allCharacters = [...builtInCharacters, ...customCharacters]
 
@@ -33,21 +42,26 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
     })
   }
 
-  const handleSaveCharacter = useCallback((char) => {
-    const updated = saveCustomCharacter(char)
-    setCustomCharacters(updated)
-
-    // If we just edited a character that's currently selected, update it in place
-    setSelected(prev => prev.map(c => c.id === char.id ? char : c))
-
+  const handleSaveCharacter = useCallback(async (char) => {
+    try {
+      const updated = await saveCustomCharacter(char)
+      setCustomCharacters(updated)
+      // Keep selected version fresh if it was edited
+      setSelected(prev => prev.map(c => c.id === char.id ? char : c))
+    } catch (err) {
+      console.error('Failed to save character:', err)
+    }
     setModalState(null)
   }, [])
 
-  const handleDeleteCharacter = useCallback((id) => {
-    const updated = deleteCustomCharacter(id)
-    setCustomCharacters(updated)
-    // Remove from selection if it was selected
-    setSelected(prev => prev.filter(c => c.id !== id))
+  const handleDeleteCharacter = useCallback(async (id) => {
+    try {
+      const updated = await deleteCustomCharacter(id)
+      setCustomCharacters(updated)
+      setSelected(prev => prev.filter(c => c.id !== id))
+    } catch (err) {
+      console.error('Failed to delete character:', err)
+    }
     setModalState(null)
   }, [])
 
@@ -57,11 +71,13 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
   }
 
   const openEdit = (e, char) => {
-    e.stopPropagation() // Don't toggle selection
+    e.stopPropagation()
     setModalState({ mode: 'edit', character: char })
   }
 
   const canStart = selected.length >= MIN_CHARS
+
+  const showCreateCard = search === '' || 'create character'.includes(search.toLowerCase())
 
   return (
     <div className="characters-screen">
@@ -71,7 +87,7 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
         </button>
         <h1 className="screen-title">Choose Your Characters</h1>
         <p className="screen-subtitle">
-          Select {MIN_CHARS}–{MAX_CHARS} characters for your {selectedMode?.name} session
+          Select up to {MAX_CHARS} characters for your {selectedMode?.name} session
         </p>
       </div>
 
@@ -89,9 +105,8 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
       </div>
 
       <div className="character-grid">
-        {/* Built-in & custom character cards */}
-        {filtered.length === 0 && (
-          <div className="character-no-results">No characters match "{search}"</div>
+        {filtered.length === 0 && !showCreateCard && (
+          <div className="character-no-results">No characters match &ldquo;{search}&rdquo;</div>
         )}
 
         {filtered.map(char => {
@@ -113,7 +128,6 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
               <div className="character-card-description">{char.description}</div>
               <div className="character-card-check">✓</div>
 
-              {/* Edit / delete buttons — custom chars only */}
               {char.isCustom && (
                 <div className="character-card-actions">
                   <button
@@ -129,14 +143,22 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
           )
         })}
 
-        {/* "Create Character" card — hidden when search filters it out */}
-        {!'create character'.includes(search.toLowerCase()) && search !== '' ? null : (
+        {/* Loading skeleton for custom chars */}
+        {customCharsLoading && (
+          <div className="character-card-loading">
+            <div className="char-loading-spinner" />
+            <span>Loading shared library…</span>
+          </div>
+        )}
+
+        {/* Create Character card */}
+        {showCreateCard && (
           <button className="character-card character-card-create" onClick={openCreate}>
             <div className="create-card-icon">+</div>
             <div className="character-card-name">Create Character</div>
             <div className="character-card-title">Custom AI persona</div>
             <div className="character-card-description">
-              Define your own character with a unique personality and accent color.
+              Define your own character or generate one with AI.
             </div>
           </button>
         )}
@@ -169,11 +191,10 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
         >
           {canStart
             ? `Start Chat with ${selected.length} Character${selected.length > 1 ? 's' : ''}`
-            : `Select at least ${MIN_CHARS} characters`}
+            : 'Select a character to begin'}
         </button>
       </div>
 
-      {/* Modal */}
       {modalState && (
         <CreateCharacterModal
           character={modalState.character || null}

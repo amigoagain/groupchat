@@ -175,3 +175,44 @@ export function hasApiKey() {
   const key = getApiKey()
   return key && key.length > 10 && key !== 'your_api_key_here'
 }
+
+/**
+ * Ask Claude to generate a character profile for any given person/concept name.
+ * Returns { title, personality, color } ready to populate the create-character form.
+ */
+export async function generateCharacterProfile(personName) {
+  const systemPrompt =
+    `You are a creative character designer for an AI group-chat app. ` +
+    `When given a name, you write vivid, accurate character profiles that capture ` +
+    `that person's distinctive voice, worldview, and communication style.`
+
+  const userPrompt =
+    `Generate a character profile for: "${personName}"\n\n` +
+    `Return ONLY valid JSON (no markdown fences, no explanation) with exactly these three fields:\n` +
+    `{\n` +
+    `  "title": "Their primary role or title in 2-5 words (e.g. 'Existentialist Philosopher', 'Jazz Musician & Activist')",\n` +
+    `  "personality": "3-4 sentences written in second person describing: how they speak and communicate, what they deeply care about, their signature quirks or mannerisms, and their unique worldview. Start each sentence with 'You '.",\n` +
+    `  "color": "A single hex color code that evokes their personality (e.g. '#8B7CF8' for a mystic, '#FF6B35' for a firebrand, '#2ED573' for a scientist)"\n` +
+    `}\n\n` +
+    `If the name is obscure or fictional, invent a plausible and interesting profile anyway.`
+
+  const text = await callAnthropicAPI(systemPrompt, [{ role: 'user', content: userPrompt }], 2)
+
+  // Extract JSON — handle cases where Claude wraps in markdown code fences
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('Could not parse generated profile. Please try again.')
+
+  const parsed = JSON.parse(jsonMatch[0])
+  if (!parsed.title || !parsed.personality || !parsed.color) {
+    throw new Error('Incomplete profile returned. Please try again.')
+  }
+
+  // Normalise color to ensure it's a valid hex
+  const colorHex = /^#[0-9a-fA-F]{6}$/.test(parsed.color) ? parsed.color : '#4f7cff'
+
+  return {
+    title: parsed.title.trim(),
+    personality: parsed.personality.trim(),
+    color: colorHex,
+  }
+}

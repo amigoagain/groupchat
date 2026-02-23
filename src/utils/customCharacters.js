@@ -1,60 +1,112 @@
-const STORAGE_KEY = 'groupchat_custom_characters'
+import { supabase, isSupabaseConfigured } from '../lib/supabase.js'
 
-/**
- * Load all custom characters from localStorage.
- */
-export function loadCustomCharacters() {
+const LS_KEY = 'groupchat_custom_characters'
+
+function lsLoad() {
   try {
-    const data = localStorage.getItem(STORAGE_KEY)
-    return data ? JSON.parse(data) : []
-  } catch {
-    return []
+    const raw = localStorage.getItem(LS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+
+function lsSave(chars) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(chars)) } catch {}
+}
+
+function rowToChar(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    title: row.title,
+    initial: row.initial || row.name.charAt(0).toUpperCase(),
+    color: row.color,
+    description: row.description || '',
+    personality: row.personality,
+    personalityText: row.personality_text || '',
+    isCustom: true,
   }
 }
 
-/**
- * Save (create or update) a custom character.
- * Returns the updated array.
- */
-export function saveCustomCharacter(character) {
-  const chars = loadCustomCharacters()
-  const idx = chars.findIndex(c => c.id === character.id)
-  if (idx >= 0) {
-    chars[idx] = character
-  } else {
-    chars.push(character)
+export async function loadCustomCharacters() {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabase
+        .from('custom_characters')
+        .select('*')
+        .order('created_at', { ascending: true })
+      if (!error && data) {
+        const chars = data.map(rowToChar)
+        lsSave(chars)
+        return chars
+      }
+    } catch (err) {
+      console.warn('Supabase loadCustomCharacters failed, using localStorage:', err)
+    }
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(chars))
-  return chars
+  return lsLoad()
 }
 
-/**
- * Delete a custom character by id.
- * Returns the updated array.
- */
-export function deleteCustomCharacter(id) {
-  const chars = loadCustomCharacters().filter(c => c.id !== id)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(chars))
-  return chars
+export async function saveCustomCharacter(character) {
+  if (isSupabaseConfigured) {
+    try {
+      const { error } = await supabase
+        .from('custom_characters')
+        .upsert(
+          {
+            id: character.id,
+            name: character.name,
+            title: character.title,
+            initial: character.initial,
+            color: character.color,
+            description: character.description || '',
+            personality: character.personality,
+            personality_text: character.personalityText || '',
+          },
+          { onConflict: 'id' }
+        )
+      if (error) console.warn('Supabase saveCustomCharacter error:', error.message)
+    } catch (err) {
+      console.warn('Supabase saveCustomCharacter failed:', err)
+    }
+  }
+
+  const cached = lsLoad()
+  const idx = cached.findIndex(c => c.id === character.id)
+  if (idx >= 0) cached[idx] = character
+  else cached.push(character)
+  lsSave(cached)
+  return cached
 }
 
-/**
- * Build a character object from raw form data.
- * If an existing id is passed it will be preserved (for edits).
- */
+export async function deleteCustomCharacter(id) {
+  if (isSupabaseConfigured) {
+    try {
+      const { error } = await supabase
+        .from('custom_characters')
+        .delete()
+        .eq('id', id)
+      if (error) console.warn('Supabase deleteCustomCharacter error:', error.message)
+    } catch (err) {
+      console.warn('Supabase deleteCustomCharacter failed:', err)
+    }
+  }
+
+  const updated = lsLoad().filter(c => c.id !== id)
+  lsSave(updated)
+  return updated
+}
+
 export function buildCustomCharacter({ id, name, title, personalityText, color }) {
   const trimmedName = name.trim()
   const trimmedTitle = title.trim()
   const trimmedPersonality = personalityText.trim()
 
-  // Full system prompt used in API calls — mirrors the style of built-in characters
   const personality =
     `You are ${trimmedName}, ${trimmedTitle}. ` +
     trimmedPersonality +
     `\n\nStay fully in character at all times. Respond naturally in the first person as this character. ` +
     `Never break character or acknowledge that you are an AI playing a role.`
 
-  // Short card description (first sentence, max 100 chars)
   const firstSentence = trimmedPersonality.split(/[.!?]/)[0] || trimmedPersonality
   const description =
     firstSentence.length > 100
@@ -68,9 +120,7 @@ export function buildCustomCharacter({ id, name, title, personalityText, color }
     initial: trimmedName.charAt(0).toUpperCase(),
     color,
     description,
-    // Full prompt for the API
     personality,
-    // Raw text stored so we can pre-populate the edit form
     personalityText: trimmedPersonality,
     isCustom: true,
   }
