@@ -10,7 +10,7 @@ import { getUsername, setUsername } from '../utils/username.js'
 
 const POLL_INTERVAL_MS = 3000
 
-export default function ChatInterface({ room, onUpdateRoom, onBack }) {
+export default function ChatInterface({ room, onUpdateRoom, onBack, onBranchRoom }) {
   const [messages, setMessages]           = useState(room.messages || [])
   const [input, setInput]                 = useState('')
   const [isLoading, setIsLoading]         = useState(false)
@@ -224,6 +224,21 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
     }
   }
 
+  // Feature 7: read-only rooms — input disabled, branch button enabled
+  const isReadOnly = room.visibility === 'read-only'
+
+  // Feature 7: branch from a specific message
+  const handleBranch = useCallback((message, messageIndex) => {
+    if (!onBranchRoom) return
+    const snippet = message.content?.slice(0, 80).replace(/\n/g, ' ') || ''
+    onBranchRoom(room.code, {
+      messageId:      message.id,
+      messageIndex:   messageIndex,
+      timestamp:      message.timestamp,
+      contentSnippet: snippet,
+    })
+  }, [room.code, onBranchRoom])
+
   const isEmpty = messages.length === 0
 
   const shareLabel = {
@@ -240,9 +255,22 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
         <div className="chat-header-left">
           <button className="chat-back-btn" onClick={onBack}>← Leave</button>
           <div className="chat-room-info">
-            <h2>{room.mode.icon} {room.mode.name} Room</h2>
+            <h2>
+              {room.mode.icon} {room.mode.name} Room
+              {room.visibility && room.visibility !== 'private' && (
+                <span className={`room-visibility-badge room-visibility-${room.visibility}`}>
+                  {room.visibility === 'unlisted'   && '🔓'}
+                  {room.visibility === 'read-only'  && '🔒'}
+                  {room.visibility === 'open'        && '🌐'}
+                  {' '}{room.visibility}
+                </span>
+              )}
+            </h2>
             <div className="chat-room-meta">
               {room.characters.map(c => c.name).join(' · ')}
+              {room.parentRoomId && (
+                <span className="chat-branch-indicator"> · ⎇ branched from {room.parentRoomId}</span>
+              )}
             </div>
           </div>
         </div>
@@ -323,7 +351,14 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
             )}
           </div>
         ) : (
-          messages.map(msg => <MessageBubble key={msg.id} message={msg} />)
+          messages.map((msg, idx) => (
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              messageIndex={idx}
+              onBranch={isReadOnly && onBranchRoom ? handleBranch : null}
+            />
+          ))
         )}
 
         {/* Routing notice + typing indicator */}
@@ -339,51 +374,71 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="chat-input-area">
-        <div className="chat-input-wrapper">
-          <textarea
-            ref={textareaRef}
-            className="chat-textarea"
-            placeholder={isLoading ? 'Characters are responding…' : 'Message the group…'}
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            disabled={isLoading}
-            rows={1}
-          />
-
-          {/* Send / Stop button — same position, swaps on loading */}
-          {isLoading ? (
+      {/* Input — hidden for read-only rooms; replaced with branch CTA */}
+      {isReadOnly ? (
+        <div className="chat-readonly-bar">
+          <span className="chat-readonly-label">🔒 Read-only room</span>
+          {onBranchRoom && (
             <button
+              className="chat-readonly-branch-btn"
               type="button"
-              className="send-btn stop-btn"
-              onClick={handleStop}
-              onTouchEnd={(e) => { e.preventDefault(); handleStop() }}
-              title="Stop generation"
+              onClick={() => {
+                // Branch from the last message, or from the start if empty
+                const lastMsg = messages[messages.length - 1]
+                if (lastMsg) handleBranch(lastMsg, messages.length - 1)
+                else onBranchRoom(room.code, { messageId: null, messageIndex: 0, timestamp: new Date().toISOString(), contentSnippet: '' })
+              }}
             >
-              ■
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="send-btn"
-              onClick={handleSend}
-              onTouchEnd={(e) => { e.preventDefault(); if (input.trim()) handleSend() }}
-              disabled={!input.trim()}
-              title="Send (Enter)"
-            >
-              →
+              ⎇ Branch this room
             </button>
           )}
         </div>
-        <div className="chat-input-hint">
-          {isLoading
-            ? 'Tap ■ to stop · Shift+Enter for new line'
-            : 'Enter to send · Shift+Enter for new line'}
-          {isSupabaseConfigured && <span className="chat-input-hint-sync"> · Live sync on</span>}
+      ) : (
+        <div className="chat-input-area">
+          <div className="chat-input-wrapper">
+            <textarea
+              ref={textareaRef}
+              className="chat-textarea"
+              placeholder={isLoading ? 'Characters are responding…' : 'Message the group…'}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              disabled={isLoading}
+              rows={1}
+            />
+
+            {/* Send / Stop button — same position, swaps on loading */}
+            {isLoading ? (
+              <button
+                type="button"
+                className="send-btn stop-btn"
+                onClick={handleStop}
+                onTouchEnd={(e) => { e.preventDefault(); handleStop() }}
+                title="Stop generation"
+              >
+                ■
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="send-btn"
+                onClick={handleSend}
+                onTouchEnd={(e) => { e.preventDefault(); if (input.trim()) handleSend() }}
+                disabled={!input.trim()}
+                title="Send (Enter)"
+              >
+                →
+              </button>
+            )}
+          </div>
+          <div className="chat-input-hint">
+            {isLoading
+              ? 'Tap ■ to stop · Shift+Enter for new line'
+              : 'Enter to send · Shift+Enter for new line'}
+            {isSupabaseConfigured && <span className="chat-input-hint-sync"> · Live sync on</span>}
+          </div>
         </div>
-      </div>
+      )}
 
       {showRenameModal && (
         <UsernameModal onSave={handleRenameSave} isRename={true} />

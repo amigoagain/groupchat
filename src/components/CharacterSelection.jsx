@@ -134,7 +134,7 @@ function CharacterRow({ char, isSelected, isMaxed, onToggle, onShowDetail }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function CharacterSelection({ onStartChat, onBack, selectedMode }) {
+export default function CharacterSelection({ onStartChat, onBack, selectedMode, branchContext }) {
   const [selected, setSelected]           = useState([])
   const [search, setSearch]               = useState('')
   const [tierFilter, setTierFilter]       = useState('all')
@@ -143,6 +143,9 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
   const [charsLoading, setCharsLoading]   = useState(true)
   const [detailChar, setDetailChar]       = useState(null)
   const [createModal, setCreateModal]     = useState(null)
+  // Feature 7: visibility selector — private (default) or unlisted
+  // read-only is gated (set in Supabase manually), so only private/unlisted here
+  const [visibility, setVisibility]       = useState('private')
 
   useEffect(() => {
     loadAllCharacters()
@@ -256,14 +259,41 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
               ))
             )}
           </div>
-          <button
-            className="char-start-btn"
-            onClick={() => canStart && onStartChat(selected)}
-            disabled={!canStart}
-          >
-            {canStart ? `Start (${selected.length})` : 'Start Chat'}
-          </button>
+          <div className="char-start-row">
+            {/* Visibility toggle — private / unlisted */}
+            <div className="visibility-toggle" title="Room visibility">
+              <button
+                className={`visibility-opt${visibility === 'private'  ? ' active' : ''}`}
+                onClick={() => setVisibility('private')}
+                type="button"
+              >🔒</button>
+              <button
+                className={`visibility-opt${visibility === 'unlisted' ? ' active' : ''}`}
+                onClick={() => setVisibility('unlisted')}
+                type="button"
+                title="Unlisted — accessible by link/code but not in Browse All"
+              >🔓</button>
+            </div>
+            <button
+              className="char-start-btn"
+              onClick={() => canStart && onStartChat(selected, visibility)}
+              disabled={!canStart}
+            >
+              {branchContext
+                ? (canStart ? `Branch (${selected.length})` : 'Branch')
+                : (canStart ? `Start (${selected.length})` : 'Start Chat')}
+            </button>
+          </div>
         </div>
+        {/* Branch context banner */}
+        {branchContext && (
+          <div className="branch-context-banner">
+            ⎇ Branching from <strong>{branchContext.parentRoomId}</strong>
+            {branchContext.branchedAt?.contentSnippet && (
+              <span className="branch-context-snippet"> · "{branchContext.branchedAt.contentSnippet}"</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Search ── */}

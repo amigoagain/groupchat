@@ -41,6 +41,10 @@ function rowToRoom(data) {
     lastMessagePreview: data.last_message_preview || null,
     lastActivity: data.last_activity || data.created_at,
     participantCount: data.participant_count || 0,
+    // Feature 7 — visibility + branch genealogy
+    visibility: data.visibility || 'private',
+    parentRoomId: data.parent_room_id || null,
+    branchedAt: data.branched_at || null,
   }
 }
 
@@ -82,8 +86,20 @@ export async function diagnoseSupabase() {
  * Saves to Supabase first (fully awaited), then caches in localStorage.
  * If Supabase fails the room is still usable locally — but we log the error
  * clearly so it's obvious the shared link won't work.
+ *
+ * @param {object} mode
+ * @param {array}  characters
+ * @param {string|null} createdBy
+ * @param {'private'|'unlisted'|'read-only'|'moderated-public'|'open'} visibility
+ * @param {{ parentRoomId: string, branchedAt: object }|null} branchData
  */
-export async function createRoom(mode, characters, createdBy = null) {
+export async function createRoom(
+  mode,
+  characters,
+  createdBy = null,
+  visibility = 'private',
+  branchData = null,
+) {
   const code = generateRoomCode()
   const now = new Date().toISOString()
   const room = {
@@ -96,10 +112,13 @@ export async function createRoom(mode, characters, createdBy = null) {
     lastMessagePreview: null,
     lastActivity: now,
     participantCount: 1,
+    visibility,
+    parentRoomId: branchData?.parentRoomId || null,
+    branchedAt: branchData?.branchedAt || null,
   }
 
   if (isSupabaseConfigured) {
-    const { error } = await supabase.from('rooms').insert({
+    const insertPayload = {
       code,
       mode,
       characters,
@@ -107,7 +126,12 @@ export async function createRoom(mode, characters, createdBy = null) {
       created_by: createdBy,
       last_activity: now,
       participant_count: 1,
-    })
+      visibility,
+    }
+    if (branchData?.parentRoomId)  insertPayload.parent_room_id = branchData.parentRoomId
+    if (branchData?.branchedAt)    insertPayload.branched_at    = branchData.branchedAt
+
+    const { error } = await supabase.from('rooms').insert(insertPayload)
 
     if (error) {
       console.error(
@@ -116,7 +140,7 @@ export async function createRoom(mode, characters, createdBy = null) {
         '  This room exists only in localStorage — shared links will NOT work.'
       )
     } else {
-      console.info(`[GroupChat] ✓ Room ${code} saved to Supabase.`)
+      console.info(`[GroupChat] ✓ Room ${code} saved to Supabase (visibility: ${visibility}).`)
     }
   }
 
@@ -240,7 +264,7 @@ export async function fetchMyRooms(codes) {
     try {
       const { data, error } = await supabase
         .from('rooms')
-        .select('code, mode, characters, created_at, created_by, last_message_preview, last_activity, participant_count')
+        .select('code, mode, characters, created_at, created_by, last_message_preview, last_activity, participant_count, visibility, parent_room_id, branched_at')
         .in('code', codes)
 
       if (!error && data) {
@@ -258,7 +282,9 @@ export async function fetchMyRooms(codes) {
 }
 
 /**
- * Fetch all public rooms from Supabase, sorted by most recent activity.
+ * Fetch publicly-listed rooms from Supabase for the Browse All tab.
+ * Only surfaces rooms with visibility = 'read-only', 'moderated-public', or 'open'.
+ * Private and unlisted rooms are intentionally excluded.
  * Returns an empty array if Supabase is unavailable.
  */
 export async function fetchAllRooms() {
@@ -266,7 +292,8 @@ export async function fetchAllRooms() {
   try {
     const { data, error } = await supabase
       .from('rooms')
-      .select('code, mode, characters, created_at, created_by, last_message_preview, last_activity, participant_count')
+      .select('code, mode, characters, created_at, created_by, last_message_preview, last_activity, participant_count, visibility, parent_room_id, branched_at')
+      .in('visibility', ['read-only', 'moderated-public', 'open'])
       .order('last_activity', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
       .limit(50)

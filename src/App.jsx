@@ -23,6 +23,10 @@ export default function App() {
   const [joinError, setJoinError] = useState('')
   const [pendingCode, setPendingCode] = useState(urlCode || null)
 
+  // Feature 7: branch context — set when user branches from a read-only room
+  // Shape: { parentRoomId: string, branchedAt: { messageId, messageIndex, timestamp, contentSnippet } }
+  const [branchContext, setBranchContext] = useState(null)
+
   // Username gate: true means we need to collect the name first
   const [needsUsername, setNeedsUsername] = useState(!hasUsername())
 
@@ -113,13 +117,47 @@ export default function App() {
     setScreen('characters')
   }
 
-  const handleStartChat = async (characters) => {
+  /**
+   * Called by CharacterSelection when the user taps Start.
+   * @param {array}  characters
+   * @param {'private'|'unlisted'} visibility  — default 'private'
+   */
+  const handleStartChat = async (characters, visibility = 'private') => {
     setSelectedCharacters(characters)
-    const room = await createRoom(selectedMode, characters, getUsername())
+
+    // If we have a pending branch context, wire it into the new room
+    const room = await createRoom(
+      selectedMode,
+      characters,
+      getUsername(),
+      visibility,
+      branchContext, // null for normal rooms, { parentRoomId, branchedAt } for branches
+    )
+
+    // Clear branch context after use
+    setBranchContext(null)
+
     setCurrentRoom(room)
     markRoomVisited(room.code)
     navigate(`/room/${room.code}`, { replace: true })
     setScreen('chat')
+  }
+
+  /**
+   * Feature 7: called when a user clicks Branch on a message in a read-only room.
+   * Stores the branch context and starts the normal room-creation flow.
+   *
+   * @param {string} parentRoomId  — room code of the source room
+   * @param {{ messageId: string, messageIndex: number, timestamp: string, contentSnippet: string }} branchedAt
+   */
+  const handleBranchRoom = (parentRoomId, branchedAt) => {
+    setBranchContext({ parentRoomId, branchedAt })
+    // Return to mode selection — the branch context will be picked up in handleStartChat
+    setCurrentRoom(null)
+    setSelectedMode(null)
+    setSelectedCharacters([])
+    navigate('/', { replace: true })
+    setScreen('mode')
   }
 
   const handleUpdateRoom = (updatedRoom) => setCurrentRoom(updatedRoom)
@@ -128,6 +166,7 @@ export default function App() {
     setCurrentRoom(null)
     setSelectedMode(null)
     setSelectedCharacters([])
+    setBranchContext(null)
     navigate('/', { replace: true })
     setScreen('inbox')
   }
@@ -185,6 +224,7 @@ export default function App() {
           onSelectMode={handleSelectMode}
           onBack={handleBackToStart}
           isPremium={isPremium}
+          branchContext={branchContext}
         />
       )}
 
@@ -193,6 +233,7 @@ export default function App() {
           onStartChat={handleStartChat}
           onBack={handleBackToMode}
           selectedMode={selectedMode}
+          branchContext={branchContext}
         />
       )}
 
@@ -202,6 +243,7 @@ export default function App() {
           onUpdateRoom={handleUpdateRoom}
           onBack={handleBackToStart}
           isPremium={isPremium}
+          onBranchRoom={handleBranchRoom}
         />
       )}
     </div>

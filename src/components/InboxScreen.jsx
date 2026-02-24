@@ -104,6 +104,19 @@ function RoomCard({ room, onOpen, onRemove, showRemove }) {
             >
               {modeName}
             </span>
+            {/* Visibility badge — only shown for non-private rooms */}
+            {room.visibility && room.visibility !== 'private' && (
+              <span className={`inbox-visibility-badge inbox-vis-${room.visibility}`}>
+                {room.visibility === 'read-only'        && '🔒 read-only'}
+                {room.visibility === 'unlisted'         && '🔓 unlisted'}
+                {room.visibility === 'open'              && '🌐 open'}
+                {room.visibility === 'moderated-public'  && '🛡 moderated'}
+              </span>
+            )}
+            {/* Branch indicator */}
+            {room.parentRoomId && (
+              <span className="inbox-branch-badge">⎇ branch</span>
+            )}
             <span className="inbox-card-code">{room.code}</span>
             {room.participantCount > 0 && (
               <span className="inbox-participants">👤 {room.participantCount}</span>
@@ -226,8 +239,11 @@ export default function InboxScreen({ onStartRoom, onOpenRoom, onJoinRoom, joinE
             ) : (
               <>
                 <div className="inbox-empty-icon">🌐</div>
-                <div className="inbox-empty-title">No public rooms</div>
-                <div className="inbox-empty-sub">Be the first to create one</div>
+                <div className="inbox-empty-title">No public rooms yet</div>
+                <div className="inbox-empty-sub">
+                  Public rooms are seeded by admins and set to <strong>read-only</strong>.
+                  Browse, read, and branch any conversation you find interesting.
+                </div>
               </>
             )}
           </div>

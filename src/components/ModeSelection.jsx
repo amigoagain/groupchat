@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { modes } from '../data/modes.js'
 
-export default function ModeSelection({ onSelectMode, onBack, isPremium }) {
+export default function ModeSelection({ onSelectMode, onBack, isPremium, branchContext }) {
   const [premiumClickedMode, setPremiumClickedMode] = useState(null)
 
   const handleModeClick = (mode) => {
@@ -19,8 +19,16 @@ export default function ModeSelection({ onSelectMode, onBack, isPremium }) {
         <button className="screen-back-btn" onClick={onBack}>
           ← Back
         </button>
-        <h1 className="screen-title">Choose a Mode</h1>
+        <h1 className="screen-title">{branchContext ? 'Branch: Choose a Mode' : 'Choose a Mode'}</h1>
         <p className="screen-subtitle">How do you want your AI characters to engage?</p>
+        {branchContext && (
+          <div className="branch-context-banner">
+            ⎇ Branching from <strong>{branchContext.parentRoomId}</strong>
+            {branchContext.branchedAt?.contentSnippet && (
+              <span className="branch-context-snippet"> · "{branchContext.branchedAt.contentSnippet}"</span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="mode-grid">
