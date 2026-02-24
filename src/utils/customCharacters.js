@@ -20,6 +20,7 @@ function lsSave(chars) {
  */
 function rowToChar(row) {
   const isUserCreated = !row.is_canonical && !row.verified && !row.variant_of
+  const tagList = row.tags || []
   return {
     id: row.id,
     name: row.name,
@@ -31,11 +32,12 @@ function rowToChar(row) {
     personalityText: row.personality_text || '',
     // Flags for UI rendering
     isCustom: isUserCreated,          // shows edit/delete buttons
-    isCanonical: !!row.is_canonical,  // gold ✦ badge
-    isVariant: !!row.variant_of,      // ↗ badge
+    isCanonical: !!row.is_canonical,  // 🔵 blue badge
+    isVariant: !!row.variant_of,      // 🟣 purple badge
+    isExpert: !row.is_canonical && !!row.verified && !row.variant_of && tagList.includes('expert'), // 🟢 green badge
     variantOf: row.variant_of || null,
     verified: !!row.verified,
-    tags: row.tags || [],
+    tags: tagList,
     createdBy: row.created_by || null,
     upvotes: row.upvotes || 0,
   }

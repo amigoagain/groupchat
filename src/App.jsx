@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import SetupScreen from './components/SetupScreen.jsx'
-import StartScreen from './components/StartScreen.jsx'
+import InboxScreen from './components/InboxScreen.jsx'
 import ModeSelection from './components/ModeSelection.jsx'
 import CharacterSelection from './components/CharacterSelection.jsx'
 import ChatInterface from './components/ChatInterface.jsx'
 import UsernameModal from './components/UsernameModal.jsx'
 import { hasApiKey } from './services/claudeApi.js'
-import { loadRoom, createRoom, diagnoseSupabase } from './utils/roomUtils.js'
-import { hasUsername, setUsername } from './utils/username.js'
+import { loadRoom, createRoom, diagnoseSupabase, incrementParticipantCount } from './utils/roomUtils.js'
+import { hasUsername, setUsername, getUsername } from './utils/username.js'
+import { markRoomVisited, markAllSeen } from './utils/inboxUtils.js'
 
 export default function App() {
   const { code: urlCode } = useParams()
@@ -33,16 +34,20 @@ export default function App() {
       if (room) {
         setCurrentRoom(room)
         setJoinError('')
+        markRoomVisited(code)
+        markAllSeen(code, (room.messages || []).length)
+        incrementParticipantCount(code) // fire-and-forget
+        navigate(`/room/${code.trim().toUpperCase()}`, { replace: true })
         setScreen('chat')
       } else {
         setJoinError(`Room "${code.toUpperCase()}" not found. Check the code and try again.`)
         navigate('/', { replace: true })
-        setScreen('start')
+        setScreen('inbox')
       }
     } catch {
       setJoinError(`Could not load room "${code.toUpperCase()}". Please try again.`)
       navigate('/', { replace: true })
-      setScreen('start')
+      setScreen('inbox')
     }
   }
 
@@ -68,7 +73,7 @@ export default function App() {
         setPendingCode(null)
         await loadAndEnterRoom(code)
       } else {
-        setScreen('start')
+        setScreen('inbox')
       }
     }
 
@@ -89,7 +94,7 @@ export default function App() {
       setPendingCode(null)
       await loadAndEnterRoom(code)
     } else {
-      setScreen('start')
+      setScreen('inbox')
     }
   }
 
@@ -97,7 +102,10 @@ export default function App() {
 
   const handleJoinRoom = async (code) => {
     await loadAndEnterRoom(code)
-    if (currentRoom) navigate(`/room/${code.toUpperCase()}`, { replace: true })
+  }
+
+  const handleOpenRoom = async (code) => {
+    await loadAndEnterRoom(code)
   }
 
   const handleSelectMode = (mode) => {
@@ -107,8 +115,9 @@ export default function App() {
 
   const handleStartChat = async (characters) => {
     setSelectedCharacters(characters)
-    const room = await createRoom(selectedMode, characters)
+    const room = await createRoom(selectedMode, characters, getUsername())
     setCurrentRoom(room)
+    markRoomVisited(room.code)
     navigate(`/room/${room.code}`, { replace: true })
     setScreen('chat')
   }
@@ -120,7 +129,7 @@ export default function App() {
     setSelectedMode(null)
     setSelectedCharacters([])
     navigate('/', { replace: true })
-    setScreen('start')
+    setScreen('inbox')
   }
 
   const handleBackToMode = () => {
@@ -142,7 +151,7 @@ export default function App() {
         </div>
       )}
 
-      {screen !== 'setup' && screen !== 'loading' && (
+      {screen !== 'setup' && screen !== 'loading' && screen !== 'inbox' && (
         <div className="premium-toggle-bar">
           <span className={`premium-toggle-label ${isPremium ? 'active' : ''}`}>
             {isPremium ? '✦ Premium Mode' : 'Free Mode'}
@@ -161,9 +170,10 @@ export default function App() {
         <SetupScreen onApiKeySet={handleApiKeySet} />
       )}
 
-      {screen === 'start' && (
-        <StartScreen
+      {screen === 'inbox' && (
+        <InboxScreen
           onStartRoom={handleStartRoom}
+          onOpenRoom={handleOpenRoom}
           onJoinRoom={handleJoinRoom}
           joinError={joinError}
           onClearJoinError={() => setJoinError('')}

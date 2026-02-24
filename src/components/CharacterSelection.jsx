@@ -12,7 +12,7 @@ const MAX_CHARS = 6
 export default function CharacterSelection({ onStartChat, onBack, selectedMode }) {
   const [selected, setSelected] = useState([])
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('all') // 'all' | 'canonical' | 'variants' | 'custom'
+  const [filter, setFilter] = useState('all') // 'all' | 'canonical' | 'variants' | 'experts' | 'custom'
   const [allCharacters, setAllCharacters] = useState([])
   const [charsLoading, setCharsLoading] = useState(true)
   const [modalState, setModalState] = useState(null)
@@ -25,10 +25,10 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
   }, [])
 
   const baseFiltered = allCharacters.filter(c => {
-    // Type filter
     if (filter === 'canonical') return c.isCanonical
-    if (filter === 'variants') return c.isVariant
-    if (filter === 'custom') return c.isCustom
+    if (filter === 'variants')  return c.isVariant
+    if (filter === 'experts')   return c.isExpert
+    if (filter === 'custom')    return c.isCustom
     return true
   })
 
@@ -50,7 +50,6 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
   const handleSaveCharacter = useCallback(async (char) => {
     try {
       await saveCustomCharacter(char)
-      // Reload the full list so new character appears
       const updated = await loadAllCharacters()
       setAllCharacters(updated)
       setSelected(prev => prev.map(c => c.id === char.id ? char : c))
@@ -89,10 +88,11 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
 
   // Counts for filter tabs
   const counts = {
-    all: allCharacters.length,
+    all:       allCharacters.length,
     canonical: allCharacters.filter(c => c.isCanonical).length,
-    variants: allCharacters.filter(c => c.isVariant).length,
-    custom: allCharacters.filter(c => c.isCustom).length,
+    variants:  allCharacters.filter(c => c.isVariant).length,
+    experts:   allCharacters.filter(c => c.isExpert).length,
+    custom:    allCharacters.filter(c => c.isCustom).length,
   }
 
   return (
@@ -122,10 +122,11 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
       {counts.canonical > 0 && (
         <div className="char-filter-tabs">
           {[
-            { key: 'all', label: 'All', count: counts.all },
-            { key: 'canonical', label: '✦ Verified', count: counts.canonical },
-            { key: 'variants', label: '↗ Variants', count: counts.variants },
-            ...(counts.custom > 0 ? [{ key: 'custom', label: '✎ Custom', count: counts.custom }] : []),
+            { key: 'all',       label: 'All',       count: counts.all },
+            { key: 'canonical', label: '🔵 Canonical', count: counts.canonical },
+            { key: 'variants',  label: '🟣 Variants',  count: counts.variants },
+            ...(counts.experts > 0 ? [{ key: 'experts', label: '🟢 Experts', count: counts.experts }] : []),
+            ...(counts.custom > 0  ? [{ key: 'custom',  label: '✎ Custom',  count: counts.custom  }] : []),
           ].map(tab => (
             <button
               key={tab.key}
@@ -165,10 +166,13 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
               {/* Badges */}
               <div className="char-badge-row">
                 {char.isCanonical && (
-                  <span className="char-badge char-badge-canonical">✦ Verified</span>
+                  <span className="char-badge char-badge-canonical">🔵 Canonical</span>
                 )}
                 {char.isVariant && (
-                  <span className="char-badge char-badge-variant">↗ Variant</span>
+                  <span className="char-badge char-badge-variant">🟣 Variant</span>
+                )}
+                {char.isExpert && (
+                  <span className="char-badge char-badge-expert">🟢 Expert</span>
                 )}
               </div>
 

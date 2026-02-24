@@ -3,7 +3,12 @@ const MODEL = 'claude-sonnet-4-6'
 const MAX_TOKENS = 600
 
 function getApiKey() {
-  // Primary: .env file (set REACT_APP_ANTHROPIC_API_KEY)
+  // Primary: Vite env var (set VITE_ANTHROPIC_API_KEY in Vercel or .env)
+  const viteKey = import.meta.env.VITE_ANTHROPIC_API_KEY
+  if (viteKey && viteKey.length > 10 && viteKey !== 'your_api_key_here') {
+    return viteKey
+  }
+  // Secondary: React App env var (legacy support)
   const envKey = import.meta.env.REACT_APP_ANTHROPIC_API_KEY
   if (envKey && envKey.length > 10 && envKey !== 'your_api_key_here') {
     return envKey
