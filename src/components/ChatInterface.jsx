@@ -3,6 +3,7 @@ import MessageBubble from './MessageBubble.jsx'
 import TypingIndicator from './TypingIndicator.jsx'
 import UsernameModal from './UsernameModal.jsx'
 import { getCharacterResponse, generateInviteMessage } from '../services/claudeApi.js'
+import { routeMessage, formatRoutingNotice } from '../services/observerRouter.js'
 import { updateRoomMessages, fetchRoomMessages, saveRoom } from '../utils/roomUtils.js'
 import { isSupabaseConfigured } from '../lib/supabase.js'
 import { getUsername, setUsername } from '../utils/username.js'
@@ -10,20 +11,21 @@ import { getUsername, setUsername } from '../utils/username.js'
 const POLL_INTERVAL_MS = 3000
 
 export default function ChatInterface({ room, onUpdateRoom, onBack }) {
-  const [messages, setMessages] = useState(room.messages || [])
-  const [input, setInput] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
+  const [messages, setMessages]           = useState(room.messages || [])
+  const [input, setInput]                 = useState('')
+  const [isLoading, setIsLoading]         = useState(false)
   const [typingCharacter, setTypingCharacter] = useState(null)
-  const [copied, setCopied] = useState(false)
-  const [shareState, setShareState] = useState('idle') // 'idle' | 'generating' | 'copied' | 'shared'
+  const [routingNotice, setRoutingNotice] = useState(null)
+  const [copied, setCopied]               = useState(false)
+  const [shareState, setShareState]       = useState('idle')
   const [showRenameModal, setShowRenameModal] = useState(false)
 
-  const messagesEndRef = useRef(null)
-  const textareaRef = useRef(null)
-
-  // Refs used inside intervals/async callbacks to avoid stale closures
-  const isLoadingRef = useRef(false)
-  const messagesRef = useRef(messages)
+  const messagesEndRef   = useRef(null)
+  const textareaRef      = useRef(null)
+  const isLoadingRef     = useRef(false)
+  const messagesRef      = useRef(messages)
+  const abortControllerRef = useRef(null) // for cancelling in-flight API calls
+  const cancelledRef     = useRef(false)  // skip remaining characters after stop
 
   useEffect(() => { isLoadingRef.current = isLoading }, [isLoading])
   useEffect(() => { messagesRef.current = messages }, [messages])
@@ -33,7 +35,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, typingCharacter])
 
-  // ── Supabase polling (every 3 s) ────────────────────────────────────────────
+  // ── Supabase polling (every 3 s) ─────────────────────────────────────────
   useEffect(() => {
     if (!isSupabaseConfigured) return
 
@@ -41,20 +43,31 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
       if (isLoadingRef.current) return
       const remoteMessages = await fetchRoomMessages(room.code)
       if (!remoteMessages) return
-      setMessages(prev => {
-        if (remoteMessages.length > prev.length) return remoteMessages
-        return prev
-      })
+      setMessages(prev => remoteMessages.length > prev.length ? remoteMessages : prev)
     }
 
     const id = setInterval(poll, POLL_INTERVAL_MS)
     return () => clearInterval(id)
   }, [room.code])
 
-  // ── Send message ────────────────────────────────────────────────────────────
+  // ── Stop generation ──────────────────────────────────────────────────────
+  const handleStop = useCallback(() => {
+    cancelledRef.current = true
+    abortControllerRef.current?.abort()
+    setTypingCharacter(null)
+    setIsLoading(false)
+    setRoutingNotice(null)
+  }, [])
+
+  // ── Send message ─────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
     const text = input.trim()
     if (!text || isLoading) return
+
+    // Create a fresh AbortController for this round of responses
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+    cancelledRef.current = false
 
     const userMessage = {
       id: `user_${Date.now()}`,
@@ -69,10 +82,24 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
     setMessages(prev => [...prev, userMessage])
     setInput('')
     setIsLoading(true)
+    setRoutingNotice(null)
+
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
+
+    // ── Observer routing: decide which characters respond ──
+    const routing = await routeMessage(text, room.characters, conversationSnapshot)
+    const notice  = formatRoutingNotice(routing)
+    if (notice) setRoutingNotice(notice)
 
     const precedingResponses = []
 
-    for (const character of room.characters) {
+    for (const character of routing.respondingCharacters) {
+      // Check if user cancelled before starting the next character
+      if (cancelledRef.current) break
+
       setTypingCharacter(character)
 
       try {
@@ -82,8 +109,11 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
           room.characters,
           conversationSnapshot,
           text,
-          precedingResponses
+          precedingResponses,
+          controller.signal,
         )
+
+        if (cancelledRef.current) break
 
         const charMsg = {
           id: `char_${character.id}_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -100,11 +130,14 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
         newMessages.push(charMsg)
         setMessages(prev => [...prev, charMsg])
 
-        // Push each character's response to Supabase progressively
+        // Push each response to Supabase progressively
         updateRoomMessages(room.code, [...conversationSnapshot, ...newMessages])
           .catch(err => console.warn('Background Supabase update failed:', err))
 
       } catch (err) {
+        // AbortError = user pressed Stop — break cleanly, don't show error message
+        if (err.name === 'AbortError') break
+
         console.error(`Error getting response from ${character.name}:`, err)
 
         const errMsg = {
@@ -126,6 +159,8 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
 
     setTypingCharacter(null)
     setIsLoading(false)
+    setRoutingNotice(null)
+    cancelledRef.current = false
 
     const finalMessages = [...conversationSnapshot, ...newMessages]
     const updatedRoom = { ...room, messages: finalMessages }
@@ -144,39 +179,31 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
     })
   }
 
-  // ── Smart share: AI invite message + native share sheet ──────────────────────
+  // ── Smart share: AI invite + native share sheet ───────────────────────────
   const handleShareLink = async () => {
     if (shareState === 'generating') return
 
-    const url = `${window.location.origin}/room/${room.code}`
-    const username = getUsername() || 'Someone'
+    const url  = `${window.location.origin}/room/${room.code}`
+    const name = getUsername() || 'Someone'
 
     setShareState('generating')
 
     try {
-      const inviteText = await generateInviteMessage(username, room.characters, messagesRef.current)
+      const inviteText  = await generateInviteMessage(name, room.characters, messagesRef.current)
       const fullMessage = `${inviteText} ${url}`
 
       if (navigator.share) {
-        // Mobile: native share sheet
         await navigator.share({ text: fullMessage })
         setShareState('shared')
       } else {
-        // Desktop: copy to clipboard
         await navigator.clipboard.writeText(fullMessage)
         setShareState('copied')
       }
       setTimeout(() => setShareState('idle'), 3000)
     } catch (err) {
       if (err.name !== 'AbortError') {
-        // Generation or share failed — fall back to plain URL
-        try {
-          await navigator.clipboard.writeText(url)
-          setShareState('copied')
-          setTimeout(() => setShareState('idle'), 3000)
-        } catch {
-          setShareState('idle')
-        }
+        try { await navigator.clipboard.writeText(url); setShareState('copied') } catch {}
+        setTimeout(() => setShareState('idle'), 3000)
       } else {
         setShareState('idle')
       }
@@ -200,10 +227,10 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
   const isEmpty = messages.length === 0
 
   const shareLabel = {
-    idle: '🔗 Share',
+    idle:       '🔗 Share',
     generating: '✦ Writing…',
-    copied: '✓ Copied!',
-    shared: '✓ Shared!',
+    copied:     '✓ Copied!',
+    shared:     '✓ Shared!',
   }[shareState]
 
   return (
@@ -244,7 +271,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
             {shareLabel}
           </button>
 
-          {/* Settings: rename yourself */}
           <button
             className="settings-btn"
             onClick={() => setShowRenameModal(true)}
@@ -286,6 +312,11 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
                room.mode.id === 'discuss' ? 'debate' :
                room.mode.id === 'plan' ? 'plan with you' : 'advise you'}.
               <br />Say something to get the conversation started.
+              {room.characters.length > 1 && (
+                <><br /><span className="chat-empty-address-hint">
+                  Tip: Start with a name like "<em>{room.characters[0].name},</em>" to address someone directly.
+                </span></>
+              )}
             </p>
             {isSupabaseConfigured && (
               <div className="chat-sync-badge">🔄 Live sync active — share the room code for others to join</div>
@@ -295,7 +326,16 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
           messages.map(msg => <MessageBubble key={msg.id} message={msg} />)
         )}
 
-        {typingCharacter && <TypingIndicator character={typingCharacter} />}
+        {/* Routing notice + typing indicator */}
+        {isLoading && (
+          <div className="chat-generation-status">
+            {routingNotice && (
+              <span className="routing-notice">{routingNotice}</span>
+            )}
+            {typingCharacter && <TypingIndicator character={typingCharacter} />}
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -312,24 +352,39 @@ export default function ChatInterface({ room, onUpdateRoom, onBack }) {
             disabled={isLoading}
             rows={1}
           />
-          <button
-            className="send-btn"
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading}
-            title="Send (Enter)"
-          >
-            {isLoading
-              ? <span style={{ fontSize: 14, display: 'inline-block', animation: 'spin 0.8s linear infinite' }}>⟳</span>
-              : '→'}
-          </button>
+
+          {/* Send / Stop button — same position, swaps on loading */}
+          {isLoading ? (
+            <button
+              type="button"
+              className="send-btn stop-btn"
+              onClick={handleStop}
+              onTouchEnd={(e) => { e.preventDefault(); handleStop() }}
+              title="Stop generation"
+            >
+              ■
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="send-btn"
+              onClick={handleSend}
+              onTouchEnd={(e) => { e.preventDefault(); if (input.trim()) handleSend() }}
+              disabled={!input.trim()}
+              title="Send (Enter)"
+            >
+              →
+            </button>
+          )}
         </div>
         <div className="chat-input-hint">
-          Press Enter to send · Shift+Enter for new line
+          {isLoading
+            ? 'Tap ■ to stop · Shift+Enter for new line'
+            : 'Enter to send · Shift+Enter for new line'}
           {isSupabaseConfigured && <span className="chat-input-hint-sync"> · Live sync on</span>}
         </div>
       </div>
 
-      {/* Rename modal */}
       {showRenameModal && (
         <UsernameModal onSave={handleRenameSave} isRename={true} />
       )}

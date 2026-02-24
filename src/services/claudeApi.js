@@ -99,11 +99,18 @@ IMPORTANT GROUP DYNAMICS:
 
 /**
  * Make an API call for a single character with retry logic.
+ * @param {string}      systemPrompt
+ * @param {object[]}    messages
+ * @param {number}      retries
+ * @param {AbortSignal} [signal]  — optional AbortSignal for cancellation
  */
-async function callAnthropicAPI(systemPrompt, messages, retries = 3) {
+async function callAnthropicAPI(systemPrompt, messages, retries = 3, signal = null) {
   const apiKey = getApiKey()
 
   for (let attempt = 0; attempt <= retries; attempt++) {
+    // Bail immediately if already cancelled
+    if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
+
     try {
       const response = await fetch(API_URL, {
         method: 'POST',
@@ -119,6 +126,7 @@ async function callAnthropicAPI(systemPrompt, messages, retries = 3) {
           system: systemPrompt,
           messages,
         }),
+        signal,
       })
 
       if (!response.ok) {
@@ -139,7 +147,9 @@ async function callAnthropicAPI(systemPrompt, messages, retries = 3) {
       const data = await response.json()
       return data.content[0].text
     } catch (err) {
-      if (attempt < retries && !err.message.includes('API error 4')) {
+      // Re-throw abort errors immediately — no retry
+      if (err.name === 'AbortError') throw err
+      if (attempt < retries && !err.message?.includes('API error 4')) {
         const delay = Math.pow(2, attempt) * 1000
         await new Promise(r => setTimeout(r, delay))
         continue
@@ -166,11 +176,12 @@ export async function getCharacterResponse(
   allCharacters,
   previousMessages,
   currentUserMessage,
-  precedingResponses
+  precedingResponses,
+  signal = null,
 ) {
   const systemPrompt = buildSystemPrompt(character, mode, allCharacters)
   const messages = buildApiMessages(previousMessages, character.id, currentUserMessage, precedingResponses)
-  return await callAnthropicAPI(systemPrompt, messages)
+  return await callAnthropicAPI(systemPrompt, messages, 3, signal)
 }
 
 /**

@@ -24,22 +24,45 @@ function getPreview(room) {
   return 'No messages yet'
 }
 
+// ─── Avatar cluster ───────────────────────────────────────────────────────────
+
+function AvatarCluster({ characters }) {
+  const list = (characters || []).slice(0, 3)
+  const size = 28
+  const overlap = 10
+  const totalWidth = list.length > 0 ? size + (list.length - 1) * (size - overlap) : size
+
+  return (
+    <div className="inbox-avatars" style={{ width: totalWidth, flexShrink: 0 }}>
+      {list.map((char, i) => (
+        <div
+          key={char.id || i}
+          className="inbox-avatar"
+          style={{ background: char.color, left: i * (size - overlap), zIndex: 3 - i }}
+        >
+          {char.initial}
+        </div>
+      ))}
+      {list.length === 0 && (
+        <div className="inbox-avatar" style={{ background: '#4f7cff', left: 0 }}>?</div>
+      )}
+    </div>
+  )
+}
+
 // ─── Room card ────────────────────────────────────────────────────────────────
 
 function RoomCard({ room, onOpen, onRemove, showRemove }) {
   const touchStartX = useRef(null)
   const [swiped, setSwiped] = useState(false)
 
-  const handleTouchStart = (e) => {
-    touchStartX.current = e.touches[0].clientX
-  }
-
-  const handleTouchEnd = (e) => {
+  const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX }
+  const handleTouchEnd   = (e) => {
     if (touchStartX.current === null) return
     const delta = e.changedTouches[0].clientX - touchStartX.current
     touchStartX.current = null
-    if (delta < -60) setSwiped(true)   // swipe left → show remove
-    if (delta > 40) setSwiped(false)   // swipe right → hide remove
+    if (delta < -60) setSwiped(true)
+    if (delta >  40) setSwiped(false)
   }
 
   const handleRemove = (e) => {
@@ -48,38 +71,22 @@ function RoomCard({ room, onOpen, onRemove, showRemove }) {
     onRemove(room.code)
   }
 
-  const roomName = generateRoomName(room.characters || [])
-  const preview  = getPreview(room)
-  const modeName = room.mode?.name || 'Chat'
-  const modeId   = room.mode?.id   || 'chat'
-  const modeColor = MODE_COLORS[modeId] || '#4f7cff'
-  const timestamp = relativeTime(room.lastActivity || room.createdAt)
-  const avatars   = (room.characters || []).slice(0, 3)
+  const roomName   = generateRoomName(room.characters || [])
+  const preview    = getPreview(room)
+  const modeName   = room.mode?.name || 'Chat'
+  const modeId     = room.mode?.id   || 'chat'
+  const modeColor  = MODE_COLORS[modeId] || '#4f7cff'
+  const timestamp  = relativeTime(room.lastActivity || room.createdAt)
 
   return (
     <div
-      className={`inbox-card-wrapper ${swiped ? 'swiped' : ''}`}
+      className={`inbox-card-wrapper${swiped ? ' swiped' : ''}`}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
       <button className="inbox-card" onClick={() => onOpen(room.code)}>
-        {/* Avatar cluster */}
-        <div className="inbox-avatars">
-          {avatars.map((char, i) => (
-            <div
-              key={char.id || i}
-              className="inbox-avatar"
-              style={{ background: char.color, zIndex: 3 - i, left: i * 16 }}
-            >
-              {char.initial}
-            </div>
-          ))}
-          {avatars.length === 0 && (
-            <div className="inbox-avatar" style={{ background: '#4f7cff' }}>?</div>
-          )}
-        </div>
+        <AvatarCluster characters={room.characters} />
 
-        {/* Content */}
         <div className="inbox-card-content">
           <div className="inbox-card-top">
             <span className="inbox-card-name">{roomName}</span>
@@ -89,32 +96,35 @@ function RoomCard({ room, onOpen, onRemove, showRemove }) {
           <div className="inbox-card-meta">
             <span
               className="inbox-mode-badge"
-              style={{ background: `${modeColor}22`, color: modeColor, borderColor: `${modeColor}44` }}
+              style={{
+                background:  `${modeColor}22`,
+                color:       modeColor,
+                borderColor: `${modeColor}44`,
+              }}
             >
               {modeName}
             </span>
             <span className="inbox-card-code">{room.code}</span>
-            {(room.participantCount > 0) && (
-              <span className="inbox-participants">
-                👤 {room.participantCount}
-              </span>
+            {room.participantCount > 0 && (
+              <span className="inbox-participants">👤 {room.participantCount}</span>
             )}
           </div>
         </div>
 
-        {/* Hover remove button (desktop) */}
+        {/* Desktop hover-remove button */}
         {showRemove && (
           <button
             className="inbox-hover-remove"
             onClick={handleRemove}
             title="Remove from My Chats"
+            tabIndex={-1}
           >
             ×
           </button>
         )}
       </button>
 
-      {/* Swipe-revealed remove button (mobile) */}
+      {/* Mobile swipe-revealed remove button */}
       {showRemove && (
         <button className="inbox-swipe-remove" onClick={handleRemove}>
           Remove
@@ -160,9 +170,7 @@ export default function InboxScreen({ onStartRoom, onOpenRoom, onJoinRoom, joinE
   const handleJoin = (e) => {
     e.preventDefault()
     const code = joinCode.trim()
-    if (code.length >= 4) {
-      onJoinRoom(code)
-    }
+    if (code.length >= 4) onJoinRoom(code)
   }
 
   const rooms = activeTab === 'my' ? myRooms : allRooms
@@ -175,7 +183,7 @@ export default function InboxScreen({ onStartRoom, onOpenRoom, onJoinRoom, joinE
           <div className="inbox-logo-dot" />
           <h1 className="inbox-title">GroupChat</h1>
         </div>
-        <button className="inbox-new-btn" onClick={onStartRoom} title="New Room">
+        <button className="inbox-new-btn" onClick={onStartRoom} title="New Room" type="button">
           +
         </button>
       </div>
@@ -183,22 +191,18 @@ export default function InboxScreen({ onStartRoom, onOpenRoom, onJoinRoom, joinE
       {/* ── Tabs ── */}
       <div className="inbox-tabs">
         <button
-          className={`inbox-tab ${activeTab === 'my' ? 'active' : ''}`}
+          className={`inbox-tab${activeTab === 'my' ? ' active' : ''}`}
           onClick={() => setActiveTab('my')}
         >
           My Chats
-          {myRooms.length > 0 && (
-            <span className="inbox-tab-count">{myRooms.length}</span>
-          )}
+          {myRooms.length > 0 && <span className="inbox-tab-count">{myRooms.length}</span>}
         </button>
         <button
-          className={`inbox-tab ${activeTab === 'all' ? 'active' : ''}`}
+          className={`inbox-tab${activeTab === 'all' ? ' active' : ''}`}
           onClick={() => setActiveTab('all')}
         >
           Browse All
-          {allRooms.length > 0 && (
-            <span className="inbox-tab-count">{allRooms.length}</span>
-          )}
+          {allRooms.length > 0 && <span className="inbox-tab-count">{allRooms.length}</span>}
         </button>
       </div>
 
@@ -206,7 +210,7 @@ export default function InboxScreen({ onStartRoom, onOpenRoom, onJoinRoom, joinE
       <div className="inbox-list">
         {loading ? (
           <div className="inbox-loading">
-            <div className="loading-spinner" />
+            <div className="loading-spinner" style={{ width: 28, height: 28 }} />
             <span>Loading rooms…</span>
           </div>
         ) : rooms.length === 0 ? (

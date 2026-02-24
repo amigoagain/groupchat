@@ -4,18 +4,145 @@ import {
   saveCustomCharacter,
   deleteCustomCharacter,
 } from '../utils/customCharacters.js'
+import { inferDomain, ALL_DOMAINS, DOMAIN_COLORS } from '../utils/domainUtils.js'
 import CreateCharacterModal from './CreateCharacterModal.jsx'
 
 const MIN_CHARS = 1
 const MAX_CHARS = 6
 
+// ─── Character detail drawer ──────────────────────────────────────────────────
+
+function CharacterDetailDrawer({ char, isSelected, isMaxed, onToggle, onClose, onEdit }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const domain = inferDomain(char)
+  const dc = DOMAIN_COLORS[domain] || DOMAIN_COLORS.Other
+  const canAdd = !isSelected && !isMaxed
+
+  return (
+    <div className="char-drawer-backdrop" onClick={onClose}>
+      <div className="char-drawer" onClick={e => e.stopPropagation()}>
+        <div className="char-drawer-handle" />
+
+        <div className="char-drawer-header">
+          <div className="char-drawer-avatar" style={{ background: char.color }}>
+            {char.initial}
+          </div>
+          <div className="char-drawer-identity">
+            <h2 className="char-drawer-name">{char.name}</h2>
+            <div className="char-drawer-title-text">{char.title}</div>
+            <div className="char-drawer-badges">
+              {char.isCanonical && <span className="char-badge char-badge-canonical">🔵 Canonical</span>}
+              {char.isVariant   && <span className="char-badge char-badge-variant">🟣 Variant</span>}
+              {char.isExpert    && <span className="char-badge char-badge-expert">🟢 Expert</span>}
+              <span
+                className="char-domain-tag"
+                style={{ background: `${dc}18`, color: dc, borderColor: `${dc}40` }}
+              >
+                {domain}
+              </span>
+            </div>
+          </div>
+          <button className="char-drawer-close" onClick={onClose}>×</button>
+        </div>
+
+        <div className="char-drawer-body">
+          {char.description && (
+            <p className="char-drawer-description">{char.description}</p>
+          )}
+          {char.personalityText && (
+            <div className="char-drawer-personality">
+              <div className="char-drawer-section-label">Personality</div>
+              <p>{char.personalityText}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="char-drawer-footer">
+          {char.isCustom && onEdit && (
+            <button
+              className="char-drawer-edit-btn"
+              onClick={() => { onEdit(char); onClose() }}
+            >
+              ✎ Edit
+            </button>
+          )}
+          <button
+            className={`char-drawer-select-btn ${isSelected ? 'remove' : 'add'}`}
+            onClick={() => { if (canAdd || isSelected) { onToggle(char); onClose() } }}
+            disabled={!canAdd && !isSelected}
+            title={isMaxed && !isSelected ? `Maximum ${MAX_CHARS} characters selected` : undefined}
+          >
+            {isSelected ? '✕ Remove from Room' : '+ Add to Room'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Character list row ───────────────────────────────────────────────────────
+
+function CharacterRow({ char, isSelected, isMaxed, onToggle, onShowDetail }) {
+  const domain = inferDomain(char)
+  const dc = DOMAIN_COLORS[domain] || DOMAIN_COLORS.Other
+
+  return (
+    <div className={`char-row${isSelected ? ' selected' : ''}${isMaxed ? ' maxed' : ''}`}>
+      <button
+        className="char-row-main"
+        onClick={() => (!isMaxed || isSelected) && onToggle(char)}
+        title={isMaxed && !isSelected ? `Maximum ${MAX_CHARS} characters` : undefined}
+      >
+        <div className="char-row-avatar" style={{ background: char.color }}>
+          {char.initial}
+        </div>
+        <div className="char-row-info">
+          <div className="char-row-name">{char.name}</div>
+          <div className="char-row-subtitle">{char.title}</div>
+          <div className="char-row-meta">
+            {char.isCanonical && <span className="char-badge char-badge-canonical" style={{ fontSize: 8, padding: '1px 4px' }}>🔵</span>}
+            {char.isVariant   && <span className="char-badge char-badge-variant"   style={{ fontSize: 8, padding: '1px 4px' }}>🟣</span>}
+            {char.isExpert    && <span className="char-badge char-badge-expert"    style={{ fontSize: 8, padding: '1px 4px' }}>🟢</span>}
+            <span
+              className="char-domain-tag"
+              style={{ background: `${dc}18`, color: dc, borderColor: `${dc}35` }}
+            >
+              {domain}
+            </span>
+          </div>
+        </div>
+        <div className="char-row-select-indicator">
+          {isSelected && <span className="char-row-check">✓</span>}
+        </div>
+      </button>
+      <button
+        className="char-row-detail-btn"
+        onClick={() => onShowDetail(char)}
+        title="View character details"
+        tabIndex={-1}
+      >
+        ›
+      </button>
+    </div>
+  )
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export default function CharacterSelection({ onStartChat, onBack, selectedMode }) {
-  const [selected, setSelected] = useState([])
-  const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('all') // 'all' | 'canonical' | 'variants' | 'experts' | 'custom'
+  const [selected, setSelected]           = useState([])
+  const [search, setSearch]               = useState('')
+  const [tierFilter, setTierFilter]       = useState('all')
+  const [domainFilter, setDomainFilter]   = useState('all')
   const [allCharacters, setAllCharacters] = useState([])
-  const [charsLoading, setCharsLoading] = useState(true)
-  const [modalState, setModalState] = useState(null)
+  const [charsLoading, setCharsLoading]   = useState(true)
+  const [detailChar, setDetailChar]       = useState(null)
+  const [createModal, setCreateModal]     = useState(null)
 
   useEffect(() => {
     loadAllCharacters()
@@ -24,24 +151,38 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
       .finally(() => setCharsLoading(false))
   }, [])
 
-  const baseFiltered = allCharacters.filter(c => {
-    if (filter === 'canonical') return c.isCanonical
-    if (filter === 'variants')  return c.isVariant
-    if (filter === 'experts')   return c.isExpert
-    if (filter === 'custom')    return c.isCustom
+  // ── Filtering ──────────────────────────────────────────────────────────────
+  const tierFiltered = allCharacters.filter(c => {
+    if (tierFilter === 'canonical') return c.isCanonical
+    if (tierFilter === 'variants')  return c.isVariant
+    if (tierFilter === 'experts')   return c.isExpert
+    if (tierFilter === 'custom')    return c.isCustom
     return true
   })
 
-  const filtered = baseFiltered.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.title.toLowerCase().includes(search.toLowerCase()) ||
-    (c.description || '').toLowerCase().includes(search.toLowerCase())
-  )
+  const domainFiltered = domainFilter === 'all'
+    ? tierFiltered
+    : tierFiltered.filter(c => inferDomain(c) === domainFilter)
 
+  const filtered = !search
+    ? domainFiltered
+    : domainFiltered.filter(c => {
+        const q = search.toLowerCase()
+        return c.name.toLowerCase().includes(q) ||
+               c.title.toLowerCase().includes(q) ||
+               (c.description || '').toLowerCase().includes(q)
+      })
+
+  // Domain chips: only domains present in current tier slice, sorted canonically
+  const presentDomains = [...new Set(tierFiltered.map(c => inferDomain(c)))]
+    .filter(d => ALL_DOMAINS.includes(d))
+    .sort((a, b) => ALL_DOMAINS.indexOf(a) - ALL_DOMAINS.indexOf(b))
+
+  // ── Actions ────────────────────────────────────────────────────────────────
   const toggleCharacter = (char) => {
     setSelected(prev => {
-      const isSelected = prev.some(c => c.id === char.id)
-      if (isSelected) return prev.filter(c => c.id !== char.id)
+      const already = prev.some(c => c.id === char.id)
+      if (already) return prev.filter(c => c.id !== char.id)
       if (prev.length >= MAX_CHARS) return prev
       return [...prev, char]
     })
@@ -53,10 +194,8 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
       const updated = await loadAllCharacters()
       setAllCharacters(updated)
       setSelected(prev => prev.map(c => c.id === char.id ? char : c))
-    } catch (err) {
-      console.error('Failed to save character:', err)
-    }
-    setModalState(null)
+    } catch (err) { console.error('Failed to save character:', err) }
+    setCreateModal(null)
   }, [])
 
   const handleDeleteCharacter = useCallback(async (id) => {
@@ -65,28 +204,10 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
       const updated = await loadAllCharacters()
       setAllCharacters(updated)
       setSelected(prev => prev.filter(c => c.id !== id))
-    } catch (err) {
-      console.error('Failed to delete character:', err)
-    }
-    setModalState(null)
+    } catch (err) { console.error('Failed to delete character:', err) }
+    setCreateModal(null)
   }, [])
 
-  const openCreate = (e) => {
-    e.stopPropagation()
-    setModalState({ mode: 'create' })
-  }
-
-  const openEdit = (e, char) => {
-    e.stopPropagation()
-    setModalState({ mode: 'edit', character: char })
-  }
-
-  const canStart = selected.length >= MIN_CHARS
-
-  const showCreateCard = (filter === 'all' || filter === 'custom') &&
-    (search === '' || 'create character'.includes(search.toLowerCase()))
-
-  // Counts for filter tabs
   const counts = {
     all:       allCharacters.length,
     canonical: allCharacters.filter(c => c.isCanonical).length,
@@ -95,43 +216,75 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
     custom:    allCharacters.filter(c => c.isCustom).length,
   }
 
-  return (
-    <div className="characters-screen">
-      <div className="screen-header">
-        <button className="screen-back-btn" onClick={onBack}>← Back</button>
-        <h1 className="screen-title">Choose Your Characters</h1>
-        <p className="screen-subtitle">
-          Select up to {MAX_CHARS} characters for your {selectedMode?.name} session
-        </p>
-      </div>
+  const TIER_TABS = [
+    { key: 'all',       label: 'All',          count: counts.all },
+    { key: 'canonical', label: '🔵 Canonical',  count: counts.canonical },
+    { key: 'variants',  label: '🟣 Variants',   count: counts.variants },
+    ...(counts.experts > 0 ? [{ key: 'experts', label: '🟢 Experts', count: counts.experts }] : []),
+    ...(counts.custom > 0  ? [{ key: 'custom',  label: '✎ Custom',  count: counts.custom  }] : []),
+  ]
 
-      <div className="characters-controls">
-        <input
-          className="character-search"
-          type="text"
-          placeholder="Search characters..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-        <div className="selection-count">
-          <span>{selected.length}</span> / {MAX_CHARS} selected
+  const canStart = selected.length >= MIN_CHARS
+
+  return (
+    <div className="char-screen-v2">
+
+      {/* ── Sticky top: nav + selected bar ── */}
+      <div className="char-v2-sticky-top">
+        <div className="char-v2-nav">
+          <button className="screen-back-btn" onClick={onBack}>← Back</button>
+          <span className="char-v2-mode-label">{selectedMode?.name} Room</span>
+        </div>
+
+        <div className="char-v2-selected-bar">
+          <div className="char-v2-chips">
+            {selected.length === 0 ? (
+              <span className="char-v2-empty-hint">Pick 1–{MAX_CHARS} characters</span>
+            ) : (
+              selected.map(char => (
+                <button
+                  key={char.id}
+                  className="char-selected-chip"
+                  onClick={() => toggleCharacter(char)}
+                  style={{ '--chip-color': char.color }}
+                  title={`Remove ${char.name}`}
+                >
+                  <span className="chip-avatar" style={{ background: char.color }}>{char.initial}</span>
+                  <span className="chip-name">{char.name.split(' ')[0]}</span>
+                  <span className="chip-x">×</span>
+                </button>
+              ))
+            )}
+          </div>
+          <button
+            className="char-start-btn"
+            onClick={() => canStart && onStartChat(selected)}
+            disabled={!canStart}
+          >
+            {canStart ? `Start (${selected.length})` : 'Start Chat'}
+          </button>
         </div>
       </div>
 
-      {/* Filter tabs — only show when we have seeded data */}
+      {/* ── Search ── */}
+      <div className="char-v2-search-row">
+        <input
+          className="character-search"
+          type="text"
+          placeholder="Search by name, title, or description…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+      </div>
+
+      {/* ── Tier filter chips ── */}
       {counts.canonical > 0 && (
         <div className="char-filter-tabs">
-          {[
-            { key: 'all',       label: 'All',       count: counts.all },
-            { key: 'canonical', label: '🔵 Canonical', count: counts.canonical },
-            { key: 'variants',  label: '🟣 Variants',  count: counts.variants },
-            ...(counts.experts > 0 ? [{ key: 'experts', label: '🟢 Experts', count: counts.experts }] : []),
-            ...(counts.custom > 0  ? [{ key: 'custom',  label: '✎ Custom',  count: counts.custom  }] : []),
-          ].map(tab => (
+          {TIER_TABS.map(tab => (
             <button
               key={tab.key}
-              className={`char-filter-tab ${filter === tab.key ? 'active' : ''}`}
-              onClick={() => setFilter(tab.key)}
+              className={`char-filter-tab${tierFilter === tab.key ? ' active' : ''}`}
+              onClick={() => { setTierFilter(tab.key); setDomainFilter('all') }}
             >
               {tab.label}
               <span className="char-filter-count">{tab.count}</span>
@@ -140,60 +293,38 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
         </div>
       )}
 
-      <div className="character-grid">
-        {filtered.length === 0 && !showCreateCard && !charsLoading && (
-          <div className="character-no-results">No characters match &ldquo;{search}&rdquo;</div>
-        )}
+      {/* ── Domain filter chips ── */}
+      {presentDomains.length > 1 && (
+        <div className="char-domain-chips-row">
+          <button
+            className={`char-domain-chip${domainFilter === 'all' ? ' active' : ''}`}
+            onClick={() => setDomainFilter('all')}
+          >
+            All
+          </button>
+          {presentDomains.map(domain => {
+            const dc = DOMAIN_COLORS[domain] || '#4d5f80'
+            const isActive = domainFilter === domain
+            return (
+              <button
+                key={domain}
+                className={`char-domain-chip${isActive ? ' active' : ''}`}
+                onClick={() => setDomainFilter(d => d === domain ? 'all' : domain)}
+                style={isActive ? {
+                  background: `${dc}28`,
+                  color: dc,
+                  borderColor: `${dc}60`,
+                } : {}}
+              >
+                {domain}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
-        {filtered.map(char => {
-          const isSelected = selected.some(c => c.id === char.id)
-          const isMaxed = selected.length >= MAX_CHARS && !isSelected
-          return (
-            <button
-              key={char.id}
-              className={`character-card ${isSelected ? 'selected' : ''} ${char.isCustom ? 'character-card-custom' : ''}`}
-              style={{ '--char-color': char.color, opacity: isMaxed ? 0.45 : 1 }}
-              onClick={() => !isMaxed && toggleCharacter(char)}
-              title={isMaxed ? `Maximum ${MAX_CHARS} characters` : undefined}
-            >
-              <div className="character-card-avatar" style={{ background: char.color }}>
-                {char.initial}
-              </div>
-              <div className="character-card-name">{char.name}</div>
-              <div className="character-card-title">{char.title}</div>
-              <div className="character-card-description">{char.description}</div>
-
-              {/* Badges */}
-              <div className="char-badge-row">
-                {char.isCanonical && (
-                  <span className="char-badge char-badge-canonical">🔵 Canonical</span>
-                )}
-                {char.isVariant && (
-                  <span className="char-badge char-badge-variant">🟣 Variant</span>
-                )}
-                {char.isExpert && (
-                  <span className="char-badge char-badge-expert">🟢 Expert</span>
-                )}
-              </div>
-
-              <div className="character-card-check">✓</div>
-
-              {char.isCustom && (
-                <div className="character-card-actions">
-                  <button
-                    className="char-action-btn char-edit-btn"
-                    onClick={e => openEdit(e, char)}
-                    title="Edit character"
-                  >
-                    ✎
-                  </button>
-                </div>
-              )}
-            </button>
-          )
-        })}
-
-        {/* Loading skeleton */}
+      {/* ── Character list ── */}
+      <div className="char-v2-list">
         {charsLoading && (
           <div className="character-card-loading">
             <div className="char-loading-spinner" />
@@ -201,56 +332,62 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode }
           </div>
         )}
 
-        {/* Create Character card */}
-        {showCreateCard && (
-          <button className="character-card character-card-create" onClick={openCreate}>
-            <div className="create-card-icon">+</div>
-            <div className="character-card-name">Create Character</div>
-            <div className="character-card-title">Custom AI persona</div>
-            <div className="character-card-description">
-              Define your own character or generate one with AI.
+        {!charsLoading && filtered.length === 0 && (
+          <div className="character-no-results">
+            {search ? `No characters match "${search}"` : 'No characters in this category'}
+          </div>
+        )}
+
+        {filtered.map(char => {
+          const isSelected = selected.some(c => c.id === char.id)
+          const isMaxed    = selected.length >= MAX_CHARS && !isSelected
+          return (
+            <CharacterRow
+              key={char.id}
+              char={char}
+              isSelected={isSelected}
+              isMaxed={isMaxed}
+              onToggle={toggleCharacter}
+              onShowDetail={setDetailChar}
+            />
+          )
+        })}
+
+        {/* Create custom character row */}
+        {(tierFilter === 'all' || tierFilter === 'custom') && !search && (
+          <button
+            className="char-row char-row-create"
+            onClick={() => setCreateModal({ mode: 'create' })}
+          >
+            <div className="char-row-avatar char-row-avatar-create">+</div>
+            <div className="char-row-info">
+              <div className="char-row-name">Create Character</div>
+              <div className="char-row-subtitle">Define a custom AI persona</div>
             </div>
+            <span className="char-row-detail-btn" style={{ pointerEvents: 'none' }}>›</span>
           </button>
         )}
       </div>
 
-      {/* Footer */}
-      <div className="characters-footer">
-        <div className="selected-preview">
-          {selected.map(char => (
-            <div
-              key={char.id}
-              className="selected-preview-avatar"
-              style={{ background: char.color }}
-              title={char.name}
-            >
-              {char.initial}
-            </div>
-          ))}
-          {selected.length === 0 && (
-            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-              No characters selected yet
-            </span>
-          )}
-        </div>
+      {/* ── Detail drawer ── */}
+      {detailChar && (
+        <CharacterDetailDrawer
+          char={detailChar}
+          isSelected={selected.some(c => c.id === detailChar.id)}
+          isMaxed={selected.length >= MAX_CHARS && !selected.some(c => c.id === detailChar.id)}
+          onToggle={toggleCharacter}
+          onClose={() => setDetailChar(null)}
+          onEdit={detailChar.isCustom ? (char) => { setDetailChar(null); setCreateModal({ mode: 'edit', character: char }) } : null}
+        />
+      )}
 
-        <button
-          className="start-chat-btn"
-          onClick={() => onStartChat(selected)}
-          disabled={!canStart}
-        >
-          {canStart
-            ? `Start Chat with ${selected.length} Character${selected.length > 1 ? 's' : ''}`
-            : 'Select a character to begin'}
-        </button>
-      </div>
-
-      {modalState && (
+      {/* ── Create / edit modal ── */}
+      {createModal && (
         <CreateCharacterModal
-          character={modalState.character || null}
+          character={createModal.character || null}
           onSave={handleSaveCharacter}
           onDelete={handleDeleteCharacter}
-          onClose={() => setModalState(null)}
+          onClose={() => setCreateModal(null)}
         />
       )}
     </div>
