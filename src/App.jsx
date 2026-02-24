@@ -7,7 +7,7 @@ import CharacterSelection from './components/CharacterSelection.jsx'
 import ChatInterface from './components/ChatInterface.jsx'
 import UsernameModal from './components/UsernameModal.jsx'
 import { hasApiKey } from './services/claudeApi.js'
-import { loadRoom, createRoom } from './utils/roomUtils.js'
+import { loadRoom, createRoom, diagnoseSupabase } from './utils/roomUtils.js'
 import { hasUsername, setUsername } from './utils/username.js'
 
 export default function App() {
@@ -49,12 +49,14 @@ export default function App() {
   // ── Initial load — only runs once username is ready ──────────────────────────
   useEffect(() => {
     if (needsUsername) {
-      // Keep loading screen visible behind the username modal
       setScreen('loading')
       return
     }
 
     const init = async () => {
+      // Run Supabase diagnostic on startup — logs to browser console
+      diagnoseSupabase()
+
       if (!hasApiKey()) {
         if (urlCode) setPendingCode(urlCode)
         setScreen('setup')
