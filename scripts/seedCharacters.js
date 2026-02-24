@@ -13,6 +13,7 @@
 
 // ── Manual .env fallback ────────────────────────────────────────────────────
 import { readFileSync } from 'fs'
+import { randomUUID } from 'crypto'
 try {
   const raw = readFileSync(new URL('../.env', import.meta.url), 'utf8')
   for (const line of raw.split('\n')) {
@@ -546,6 +547,7 @@ async function seed() {
 
   for (const char of CANONICAL) {
     const row = {
+      id: randomUUID(),
       name: char.name,
       title: char.title,
       initial: char.initial,
@@ -608,6 +610,7 @@ async function seed() {
     const parentId = variant.parentKey ? (keyToId[variant.parentKey] || null) : null
 
     const row = {
+      id: randomUUID(),
       name: variant.name,
       title: variant.title,
       initial: variant.initial,
