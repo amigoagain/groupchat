@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import SetupScreen from './components/SetupScreen.jsx'
 import InboxScreen from './components/InboxScreen.jsx'
@@ -7,8 +7,11 @@ import CharacterSelection from './components/CharacterSelection.jsx'
 import ChatInterface from './components/ChatInterface.jsx'
 import AuthScreen from './components/AuthScreen.jsx'
 import BranchConfig from './components/BranchConfig.jsx'
-import GraphScreen from './components/GraphScreen.jsx'
 import WeaverEntryScreen from './components/WeaverEntryScreen.jsx'
+// GraphScreen (force-graph) is preserved for V2 but loaded lazily to keep it off
+// the critical-path bundle (react-force-graph pulls in aframe which requires a
+// global AFRAME object that isn't present in our Vite ESM build).
+const GraphScreen = React.lazy(() => import('./components/GraphScreen.jsx'))
 import UsernameModal from './components/UsernameModal.jsx'
 import { hasApiKey } from './services/claudeApi.js'
 import { loadRoom, createRoom, diagnoseSupabase, incrementParticipantCount } from './utils/roomUtils.js'
@@ -233,7 +236,7 @@ export default function App() {
 
       {screen === 'auth' && (
         <AuthScreen
-          onBack={() => setScreen(currentRoom ? 'chat' : 'graph')}
+          onBack={() => setScreen(currentRoom ? 'chat' : 'weaver')}
           promptReason={authPromptReason}
         />
       )}
@@ -252,11 +255,13 @@ export default function App() {
       )}
 
       {screen === 'graph' && (
-        <GraphScreen
-          onOpenRoom={handleOpenRoom}
-          onStartRoom={handleStartRoom}
-          onSignIn={() => handleSignIn()}
-        />
+        <React.Suspense fallback={<div className="loading-screen"><div className="loading-spinner" /></div>}>
+          <GraphScreen
+            onOpenRoom={handleOpenRoom}
+            onStartRoom={handleStartRoom}
+            onSignIn={() => handleSignIn()}
+          />
+        </React.Suspense>
       )}
 
       {screen === 'inbox' && (
@@ -293,7 +298,7 @@ export default function App() {
           branchedAtSequence={branchConfigData.branchedAtSequence}
           branchDepth={branchConfigData.branchDepth}
           onConfirm={handleBranchConfirm}
-          onCancel={() => setScreen(currentRoom ? 'chat' : 'graph')}
+          onCancel={() => setScreen(currentRoom ? 'chat' : 'weaver')}
         />
       )}
 
