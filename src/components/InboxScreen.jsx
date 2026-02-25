@@ -6,8 +6,8 @@ import {
   getVisitedRoomCodes,
   removeFromVisited,
 } from '../utils/inboxUtils.js'
+import { useAuth } from '../contexts/AuthContext.jsx'
 
-// ─── Mode badge colours ───────────────────────────────────────────────────────
 const MODE_COLORS = {
   chat:    '#4f7cff',
   discuss: '#a855f7',
@@ -17,18 +17,14 @@ const MODE_COLORS = {
 
 function getPreview(room) {
   if (room.lastMessagePreview) return room.lastMessagePreview
-  if (room.messages && room.messages.length > 0) {
-    const last = [...room.messages].reverse().find(m => m.type === 'character')
-    if (last) return `${last.characterName}: ${last.content.slice(0, 80).replace(/\n/g, ' ')}`
-  }
   return 'No messages yet'
 }
 
-// ─── Avatar cluster ───────────────────────────────────────────────────────────
+// ── Avatar cluster ─────────────────────────────────────────────────────────────
 
 function AvatarCluster({ characters }) {
-  const list = (characters || []).slice(0, 3)
-  const size = 28
+  const list    = (characters || []).slice(0, 3)
+  const size    = 28
   const overlap = 10
   const totalWidth = list.length > 0 ? size + (list.length - 1) * (size - overlap) : size
 
@@ -50,7 +46,7 @@ function AvatarCluster({ characters }) {
   )
 }
 
-// ─── Room card ────────────────────────────────────────────────────────────────
+// ── Room card ──────────────────────────────────────────────────────────────────
 
 function RoomCard({ room, onOpen, onRemove, showRemove }) {
   const touchStartX = useRef(null)
@@ -71,12 +67,12 @@ function RoomCard({ room, onOpen, onRemove, showRemove }) {
     onRemove(room.code)
   }
 
-  const roomName   = generateRoomName(room.characters || [])
-  const preview    = getPreview(room)
-  const modeName   = room.mode?.name || 'Chat'
-  const modeId     = room.mode?.id   || 'chat'
-  const modeColor  = MODE_COLORS[modeId] || '#4f7cff'
-  const timestamp  = relativeTime(room.lastActivity || room.createdAt)
+  const roomName  = generateRoomName(room.characters || [])
+  const preview   = getPreview(room)
+  const modeName  = room.mode?.name || 'Chat'
+  const modeId    = room.mode?.id   || 'chat'
+  const modeColor = MODE_COLORS[modeId] || '#4f7cff'
+  const timestamp = relativeTime(room.lastActivity || room.createdAt)
 
   return (
     <div
@@ -104,19 +100,22 @@ function RoomCard({ room, onOpen, onRemove, showRemove }) {
             >
               {modeName}
             </span>
-            {/* Visibility badge — only shown for non-private rooms */}
+
+            {/* Visibility badge */}
             {room.visibility && room.visibility !== 'private' && (
               <span className={`inbox-visibility-badge inbox-vis-${room.visibility}`}>
                 {room.visibility === 'read-only'        && '🔒 read-only'}
                 {room.visibility === 'unlisted'         && '🔓 unlisted'}
-                {room.visibility === 'open'              && '🌐 open'}
-                {room.visibility === 'moderated-public'  && '🛡 moderated'}
+                {room.visibility === 'open'             && '🌐 open'}
+                {room.visibility === 'moderated-public' && '🛡 moderated'}
               </span>
             )}
+
             {/* Branch indicator */}
             {room.parentRoomId && (
               <span className="inbox-branch-badge">⎇ branch</span>
             )}
+
             <span className="inbox-card-code">{room.code}</span>
             {room.participantCount > 0 && (
               <span className="inbox-participants">👤 {room.participantCount}</span>
@@ -124,44 +123,47 @@ function RoomCard({ room, onOpen, onRemove, showRemove }) {
           </div>
         </div>
 
-        {/* Desktop hover-remove button */}
         {showRemove && (
           <button
             className="inbox-hover-remove"
             onClick={handleRemove}
             title="Remove from My Chats"
             tabIndex={-1}
-          >
-            ×
-          </button>
+          >×</button>
         )}
       </button>
 
-      {/* Mobile swipe-revealed remove button */}
       {showRemove && (
-        <button className="inbox-swipe-remove" onClick={handleRemove}>
-          Remove
-        </button>
+        <button className="inbox-swipe-remove" onClick={handleRemove}>Remove</button>
       )}
     </div>
   )
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+// ── Main component ─────────────────────────────────────────────────────────────
 
-export default function InboxScreen({ onStartRoom, onOpenRoom, onJoinRoom, joinError, onClearJoinError }) {
+export default function InboxScreen({
+  onStartRoom,
+  onOpenRoom,
+  onJoinRoom,
+  onSignIn,
+  joinError,
+  onClearJoinError,
+}) {
+  const { isAuthenticated, userId, username, authLoading } = useAuth()
+
   const [activeTab, setActiveTab] = useState('my')
-  const [myRooms, setMyRooms]     = useState([])
-  const [allRooms, setAllRooms]   = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [joinCode, setJoinCode]   = useState('')
+  const [myRooms,   setMyRooms]   = useState([])
+  const [allRooms,  setAllRooms]  = useState([])
+  const [loading,   setLoading]   = useState(true)
+  const [joinCode,  setJoinCode]  = useState('')
 
   const loadRooms = useCallback(async () => {
     setLoading(true)
     try {
-      const visitedCodes = getVisitedRoomCodes()
+      const visitedCodes = isAuthenticated ? [] : getVisitedRoomCodes()
       const [my, all] = await Promise.all([
-        fetchMyRooms(visitedCodes),
+        fetchMyRooms(visitedCodes, isAuthenticated ? userId : null),
         fetchAllRooms(),
       ])
       setMyRooms(my)
@@ -171,9 +173,11 @@ export default function InboxScreen({ onStartRoom, onOpenRoom, onJoinRoom, joinE
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [isAuthenticated, userId])
 
-  useEffect(() => { loadRooms() }, [loadRooms])
+  useEffect(() => {
+    if (!authLoading) loadRooms()
+  }, [authLoading, loadRooms])
 
   const handleRemove = (code) => {
     removeFromVisited(code)
@@ -196,9 +200,20 @@ export default function InboxScreen({ onStartRoom, onOpenRoom, onJoinRoom, joinE
           <div className="inbox-logo-dot" />
           <h1 className="inbox-title">GroupChat</h1>
         </div>
-        <button className="inbox-new-btn" onClick={onStartRoom} title="New Room" type="button">
-          +
-        </button>
+        <div className="inbox-header-right">
+          {isAuthenticated ? (
+            <span className="inbox-user-badge" title={`Signed in as ${username}`}>
+              {(username || 'You').charAt(0).toUpperCase()}
+            </span>
+          ) : (
+            <button className="inbox-signin-btn" onClick={onSignIn} type="button">
+              Sign in
+            </button>
+          )}
+          <button className="inbox-new-btn" onClick={onStartRoom} title="New Room" type="button">
+            +
+          </button>
+        </div>
       </div>
 
       {/* ── Tabs ── */}
@@ -221,7 +236,7 @@ export default function InboxScreen({ onStartRoom, onOpenRoom, onJoinRoom, joinE
 
       {/* ── Room list ── */}
       <div className="inbox-list">
-        {loading ? (
+        {loading || authLoading ? (
           <div className="inbox-loading">
             <div className="loading-spinner" style={{ width: 28, height: 28 }} />
             <span>Loading rooms…</span>
@@ -235,13 +250,18 @@ export default function InboxScreen({ onStartRoom, onOpenRoom, onJoinRoom, joinE
                 <div className="inbox-empty-sub">
                   Tap <strong>+</strong> to start your first room, or enter a room code below
                 </div>
+                {!isAuthenticated && (
+                  <button className="inbox-auth-nudge" onClick={onSignIn} type="button">
+                    Sign in to keep your rooms across devices →
+                  </button>
+                )}
               </>
             ) : (
               <>
                 <div className="inbox-empty-icon">🌐</div>
                 <div className="inbox-empty-title">No public rooms yet</div>
                 <div className="inbox-empty-sub">
-                  Public rooms are seeded by admins and set to <strong>read-only</strong>.
+                  Public rooms are set to <strong>read-only</strong> and seeded by admins.
                   Browse, read, and branch any conversation you find interesting.
                 </div>
               </>

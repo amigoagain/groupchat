@@ -3,103 +3,132 @@ import MessageBubble from './MessageBubble.jsx'
 import TypingIndicator from './TypingIndicator.jsx'
 import UsernameModal from './UsernameModal.jsx'
 import { getCharacterResponse, generateInviteMessage } from '../services/claudeApi.js'
-import { routeMessage, formatRoutingNotice } from '../services/observerRouter.js'
-import { updateRoomMessages, fetchRoomMessages, saveRoom } from '../utils/roomUtils.js'
+import { routeMessage, formatRoutingNotice } from '../services/weaverRouter.js'
 import { isSupabaseConfigured } from '../lib/supabase.js'
+import { insertMessage, fetchMessages, fetchMessagesAfter } from '../utils/messageUtils.js'
+import { saveRoom } from '../utils/roomUtils.js'
 import { getUsername, setUsername } from '../utils/username.js'
+import { useAuth } from '../contexts/AuthContext.jsx'
 
 const POLL_INTERVAL_MS = 3000
 
-export default function ChatInterface({ room, onUpdateRoom, onBack, onBranchRoom }) {
-  const [messages, setMessages]           = useState(room.messages || [])
-  const [input, setInput]                 = useState('')
-  const [isLoading, setIsLoading]         = useState(false)
+export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranchConfig }) {
+  const { isAuthenticated, username: authUsername, userId } = useAuth()
+
+  const [messages,        setMessages]        = useState([])
+  const [input,           setInput]           = useState('')
+  const [isLoading,       setIsLoading]       = useState(true)  // true while fetching initial msgs
+  const [isSending,       setIsSending]       = useState(false)
   const [typingCharacter, setTypingCharacter] = useState(null)
-  const [routingNotice, setRoutingNotice] = useState(null)
-  const [copied, setCopied]               = useState(false)
-  const [shareState, setShareState]       = useState('idle')
+  const [routingNotice,   setRoutingNotice]   = useState(null)
+  const [copied,          setCopied]          = useState(false)
+  const [shareState,      setShareState]      = useState('idle')
   const [showRenameModal, setShowRenameModal] = useState(false)
 
-  const messagesEndRef   = useRef(null)
-  const textareaRef      = useRef(null)
-  const isLoadingRef     = useRef(false)
-  const messagesRef      = useRef(messages)
-  const abortControllerRef = useRef(null) // for cancelling in-flight API calls
-  const cancelledRef     = useRef(false)  // skip remaining characters after stop
+  // ── Branch selection mode ──────────────────────────────────────────────────
+  const [selectionMode,  setSelectionMode]  = useState(false)
+  const [selectionRange, setSelectionRange] = useState({ start: null, end: null })
+  const msgRefs = useRef([]) // one ref per message div
 
-  useEffect(() => { isLoadingRef.current = isLoading }, [isLoading])
-  useEffect(() => { messagesRef.current = messages }, [messages])
+  const messagesEndRef    = useRef(null)
+  const textareaRef       = useRef(null)
+  const isSendingRef      = useRef(false)
+  const messagesRef       = useRef(messages)
+  const abortControllerRef = useRef(null)
+  const cancelledRef      = useRef(false)
 
-  // Scroll to bottom on new messages
+  useEffect(() => { isSendingRef.current = isSending }, [isSending])
+  useEffect(() => { messagesRef.current = messages },  [messages])
+
+  // ── Load messages from the messages table on mount ─────────────────────────
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, typingCharacter])
+    if (!room?.id) {
+      setIsLoading(false)
+      return
+    }
+    fetchMessages(room.id)
+      .then(msgs => { setMessages(msgs); setIsLoading(false) })
+      .catch(() => setIsLoading(false))
+  }, [room?.id])
 
-  // ── Supabase polling (every 3 s) ─────────────────────────────────────────
+  // ── Polling for new messages ───────────────────────────────────────────────
   useEffect(() => {
-    if (!isSupabaseConfigured) return
+    if (!isSupabaseConfigured || !room?.id) return
 
     const poll = async () => {
-      if (isLoadingRef.current) return
-      const remoteMessages = await fetchRoomMessages(room.code)
-      if (!remoteMessages) return
-      setMessages(prev => remoteMessages.length > prev.length ? remoteMessages : prev)
+      if (isSendingRef.current) return
+      const lastSeq = messagesRef.current.at(-1)?.sequenceNumber || 0
+      const newMsgs = await fetchMessagesAfter(room.id, lastSeq)
+      if (newMsgs.length > 0) {
+        setMessages(prev => [...prev, ...newMsgs])
+      }
     }
 
     const id = setInterval(poll, POLL_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [room.code])
+  }, [room?.id])
 
-  // ── Stop generation ──────────────────────────────────────────────────────
+  // ── Scroll to bottom on new messages ──────────────────────────────────────
+  useEffect(() => {
+    if (!selectionMode) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages, typingCharacter, selectionMode])
+
+  // ── Stop generation ────────────────────────────────────────────────────────
   const handleStop = useCallback(() => {
     cancelledRef.current = true
     abortControllerRef.current?.abort()
     setTypingCharacter(null)
-    setIsLoading(false)
+    setIsSending(false)
     setRoutingNotice(null)
   }, [])
 
-  // ── Send message ─────────────────────────────────────────────────────────
+  // ── Send message ───────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
     const text = input.trim()
-    if (!text || isLoading) return
+    if (!text || isSending) return
 
-    // Create a fresh AbortController for this round of responses
     const controller = new AbortController()
     abortControllerRef.current = controller
     cancelledRef.current = false
 
-    const userMessage = {
-      id: `user_${Date.now()}`,
-      type: 'user',
-      content: text,
-      timestamp: new Date().toISOString(),
+    const senderName = isAuthenticated
+      ? (authUsername || getUsername() || 'User')
+      : (getUsername() || 'Guest')
+
+    const userMsgPayload = {
+      type:       'user',
+      content:    text,
+      senderName,
+      userId:     userId || null,
+    }
+
+    // Insert to DB and get the saved row (with real id + sequence_number)
+    let savedUserMsg
+    if (isSupabaseConfigured && room?.id) {
+      savedUserMsg = await insertMessage(userMsgPayload, room.id)
+    } else {
+      savedUserMsg = { ...userMsgPayload, id: `user_${Date.now()}`, sequenceNumber: 0, timestamp: new Date().toISOString() }
     }
 
     const conversationSnapshot = [...messagesRef.current]
-    const newMessages = [userMessage]
-
-    setMessages(prev => [...prev, userMessage])
+    setMessages(prev => [...prev, savedUserMsg])
     setInput('')
-    setIsLoading(true)
+    setIsSending(true)
     setRoutingNotice(null)
 
-    // Reset textarea height
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-    }
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
 
-    // ── Observer routing: decide which characters respond ──
-    const routing = await routeMessage(text, room.characters, conversationSnapshot)
+    // ── Weaver routing ──────────────────────────────────────────────────────
+    const routing = await routeMessage(text, room.characters, conversationSnapshot, controller.signal)
     const notice  = formatRoutingNotice(routing)
     if (notice) setRoutingNotice(notice)
 
     const precedingResponses = []
 
     for (const character of routing.respondingCharacters) {
-      // Check if user cancelled before starting the next character
       if (cancelledRef.current) break
-
       setTypingCharacter(character)
 
       try {
@@ -111,62 +140,62 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onBranchRoom
           text,
           precedingResponses,
           controller.signal,
+          character.responseWeight || 'full',
+          room.foundingContext || null,
         )
 
         if (cancelledRef.current) break
 
-        const charMsg = {
-          id: `char_${character.id}_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          type: 'character',
-          characterId: character.id,
-          characterName: character.name,
-          characterColor: character.color,
+        const charMsgPayload = {
+          type:             'character',
+          content:          responseText,
+          characterId:      character.id,
+          characterName:    character.name,
+          characterColor:   character.color,
           characterInitial: character.initial,
-          content: responseText,
-          timestamp: new Date().toISOString(),
+        }
+
+        let savedCharMsg
+        if (isSupabaseConfigured && room?.id) {
+          savedCharMsg = await insertMessage(charMsgPayload, room.id)
+        } else {
+          savedCharMsg = { ...charMsgPayload, id: `char_${character.id}_${Date.now()}`, sequenceNumber: 0, timestamp: new Date().toISOString() }
         }
 
         precedingResponses.push({ characterName: character.name, content: responseText })
-        newMessages.push(charMsg)
-        setMessages(prev => [...prev, charMsg])
-
-        // Push each response to Supabase progressively
-        updateRoomMessages(room.code, [...conversationSnapshot, ...newMessages])
-          .catch(err => console.warn('Background Supabase update failed:', err))
+        setMessages(prev => [...prev, savedCharMsg])
 
       } catch (err) {
-        // AbortError = user pressed Stop — break cleanly, don't show error message
         if (err.name === 'AbortError') break
+        console.error(`Error from ${character.name}:`, err)
 
-        console.error(`Error getting response from ${character.name}:`, err)
-
-        const errMsg = {
-          id: `err_${character.id}_${Date.now()}`,
-          type: 'character',
-          characterId: character.id,
-          characterName: character.name,
-          characterColor: character.color,
+        const errPayload = {
+          type:             'character',
+          content:          `[${character.name} couldn't respond: ${err.message || 'Unknown error'}.]`,
+          characterId:      character.id,
+          characterName:    character.name,
+          characterColor:   character.color,
           characterInitial: character.initial,
-          content: `[${character.name} couldn't respond: ${err.message || 'Unknown error'}.]`,
-          isError: true,
-          timestamp: new Date().toISOString(),
+          isError:          true,
         }
-
-        newMessages.push(errMsg)
-        setMessages(prev => [...prev, errMsg])
+        if (isSupabaseConfigured && room?.id) {
+          const saved = await insertMessage(errPayload, room.id)
+          setMessages(prev => [...prev, saved])
+        } else {
+          setMessages(prev => [...prev, { ...errPayload, id: `err_${Date.now()}`, timestamp: new Date().toISOString() }])
+        }
       }
     }
 
     setTypingCharacter(null)
-    setIsLoading(false)
+    setIsSending(false)
     setRoutingNotice(null)
     cancelledRef.current = false
 
-    const finalMessages = [...conversationSnapshot, ...newMessages]
-    const updatedRoom = { ...room, messages: finalMessages }
-    saveRoom(room.code, updatedRoom)
-    onUpdateRoom(updatedRoom)
-  }, [input, isLoading, room, onUpdateRoom])
+    // Persist room metadata locally (no messages JSON)
+    saveRoom(room.code, { ...room })
+    onUpdateRoom({ ...room })
+  }, [input, isSending, room, onUpdateRoom, isAuthenticated, authUsername, userId])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -179,19 +208,14 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onBranchRoom
     })
   }
 
-  // ── Smart share: AI invite + native share sheet ───────────────────────────
   const handleShareLink = async () => {
     if (shareState === 'generating') return
-
     const url  = `${window.location.origin}/room/${room.code}`
-    const name = getUsername() || 'Someone'
-
+    const name = isAuthenticated ? (authUsername || getUsername()) : (getUsername() || 'Someone')
     setShareState('generating')
-
     try {
       const inviteText  = await generateInviteMessage(name, room.characters, messagesRef.current)
       const fullMessage = `${inviteText} ${url}`
-
       if (navigator.share) {
         await navigator.share({ text: fullMessage })
         setShareState('shared')
@@ -224,22 +248,65 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onBranchRoom
     }
   }
 
-  // Feature 7: read-only rooms — input disabled, branch button enabled
-  const isReadOnly = room.visibility === 'read-only'
+  // ── Branch selection mode ──────────────────────────────────────────────────
 
-  // Feature 7: branch from a specific message
-  const handleBranch = useCallback((message, messageIndex) => {
-    if (!onBranchRoom) return
-    const snippet = message.content?.slice(0, 80).replace(/\n/g, ' ') || ''
-    onBranchRoom(room.code, {
-      messageId:      message.id,
-      messageIndex:   messageIndex,
-      timestamp:      message.timestamp,
-      contentSnippet: snippet,
+  const enterSelectionMode = useCallback((startIdx) => {
+    setSelectionMode(true)
+    setSelectionRange({ start: startIdx, end: startIdx })
+  }, [])
+
+  const exitSelectionMode = useCallback(() => {
+    setSelectionMode(false)
+    setSelectionRange({ start: null, end: null })
+  }, [])
+
+  /**
+   * Handle dragging the top or bottom selection handle.
+   * Called from MessageBubble when the handle is dragged to a new message idx.
+   */
+  const handleHandleMove = useCallback((handleType, newIdx) => {
+    setSelectionRange(prev => {
+      if (handleType === 'start') {
+        const newStart = Math.min(newIdx, prev.end ?? newIdx)
+        return { ...prev, start: newStart }
+      } else {
+        const newEnd = Math.max(newIdx, prev.start ?? newIdx)
+        return { ...prev, end: newEnd }
+      }
     })
-  }, [room.code, onBranchRoom])
+  }, [])
 
-  const isEmpty = messages.length === 0
+  /**
+   * Toggle a single message's selection by tapping it in selection mode.
+   */
+  const handleMessageTap = useCallback((idx) => {
+    if (!selectionMode) return
+    setSelectionRange(prev => {
+      if (prev.start === null) return { start: idx, end: idx }
+      const newStart = Math.min(prev.start, idx)
+      const newEnd   = Math.max(prev.end, idx)
+      return { start: newStart, end: newEnd }
+    })
+  }, [selectionMode])
+
+  const selectedMessages = selectionMode && selectionRange.start !== null
+    ? messages.slice(selectionRange.start, (selectionRange.end ?? selectionRange.start) + 1)
+    : []
+
+  const handleBranchFromSelection = useCallback(() => {
+    if (!onOpenBranchConfig || selectedMessages.length === 0) return
+    onOpenBranchConfig({
+      parentRoomId:       room.id,
+      branchedAtSequence: selectedMessages.at(-1)?.sequenceNumber || null,
+      branchDepth:        (room.branchDepth || 0) + 1,
+      foundingMessages:   selectedMessages,
+    })
+    exitSelectionMode()
+  }, [onOpenBranchConfig, selectedMessages, room, exitSelectionMode])
+
+  // ── Derived state ──────────────────────────────────────────────────────────
+  const isReadOnly = room.visibility === 'read-only'
+  const isEmpty    = !isLoading && messages.length === 0
 
   const shareLabel = {
     idle:       '🔗 Share',
@@ -249,8 +316,8 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onBranchRoom
   }[shareState]
 
   return (
-    <div className="chat-screen">
-      {/* Header */}
+    <div className={`chat-screen${selectionMode ? ' selection-mode' : ''}`}>
+      {/* ── Header ── */}
       <div className="chat-header">
         <div className="chat-header-left">
           <button className="chat-back-btn" onClick={onBack}>← Leave</button>
@@ -259,9 +326,9 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onBranchRoom
               {room.mode.icon} {room.mode.name} Room
               {room.visibility && room.visibility !== 'private' && (
                 <span className={`room-visibility-badge room-visibility-${room.visibility}`}>
-                  {room.visibility === 'unlisted'   && '🔓'}
-                  {room.visibility === 'read-only'  && '🔒'}
-                  {room.visibility === 'open'        && '🌐'}
+                  {room.visibility === 'unlisted'  && '🔓'}
+                  {room.visibility === 'read-only' && '🔒'}
+                  {room.visibility === 'open'       && '🌐'}
                   {' '}{room.visibility}
                 </span>
               )}
@@ -269,7 +336,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onBranchRoom
             <div className="chat-room-meta">
               {room.characters.map(c => c.name).join(' · ')}
               {room.parentRoomId && (
-                <span className="chat-branch-indicator"> · ⎇ branched from {room.parentRoomId}</span>
+                <span className="chat-branch-indicator"> · ⎇ branch</span>
               )}
             </div>
           </div>
@@ -293,16 +360,27 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onBranchRoom
             className={`share-btn ${shareState !== 'idle' ? `share-btn-${shareState}` : ''}`}
             onClick={handleShareLink}
             disabled={shareState === 'generating'}
-            title="Share room link with an AI-generated invite"
           >
             {shareState === 'generating' && <span className="share-spinner" />}
             {shareLabel}
           </button>
 
+          {/* Branch / Selection mode toggle — always available for read-only, optional otherwise */}
+          {onOpenBranchConfig && (
+            <button
+              className={`chat-select-btn${selectionMode ? ' active' : ''}`}
+              onClick={() => selectionMode ? exitSelectionMode() : setSelectionMode(true)}
+              title={selectionMode ? 'Exit selection mode' : 'Select messages to branch'}
+              type="button"
+            >
+              {selectionMode ? '✕' : '⎇'}
+            </button>
+          )}
+
           <button
             className="settings-btn"
             onClick={() => setShowRenameModal(true)}
-            title={`Your name: ${getUsername() || 'Not set'} — click to change`}
+            title={`Your name: ${isAuthenticated ? authUsername : (getUsername() || 'Not set')}`}
           >
             ⚙
           </button>
@@ -317,9 +395,39 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onBranchRoom
         </div>
       </div>
 
-      {/* Messages */}
+      {/* ── Founding context (branch rooms only) ── */}
+      {room.foundingContext && room.foundingContext.length > 0 && (
+        <div className="chat-founding-context">
+          <div className="chat-founding-label">⎇ Branched from this exchange</div>
+          {room.foundingContext.map((msg, i) => (
+            <div key={i} className="chat-founding-msg">
+              {(msg.sender_type === 'character' || msg.type === 'character') ? (
+                <div
+                  className="chat-founding-avatar"
+                  style={{ background: msg.sender_color || msg.characterColor || '#4f7cff' }}
+                >
+                  {msg.sender_initial || msg.characterInitial || '?'}
+                </div>
+              ) : (
+                <div className="chat-founding-avatar chat-founding-avatar-user">Y</div>
+              )}
+              <div className="chat-founding-content">
+                <span className="chat-founding-name">{msg.sender_name || msg.characterName || 'User'}</span>
+                <span className="chat-founding-text">{msg.content.slice(0, 150)}{msg.content.length > 150 ? '…' : ''}</span>
+              </div>
+            </div>
+          ))}
+          <div className="chat-founding-divider">↓ New conversation begins here</div>
+        </div>
+      )}
+
+      {/* ── Messages ── */}
       <div className="chat-messages">
-        {isEmpty ? (
+        {isLoading ? (
+          <div className="chat-loading">
+            <div className="loading-spinner" style={{ width: 28, height: 28 }} />
+          </div>
+        ) : isEmpty ? (
           <div className="chat-empty">
             <div className="chat-empty-avatars">
               {room.characters.slice(0, 4).map((char, i) => (
@@ -347,26 +455,38 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onBranchRoom
               )}
             </p>
             {isSupabaseConfigured && (
-              <div className="chat-sync-badge">🔄 Live sync active — share the room code for others to join</div>
+              <div className="chat-sync-badge">🔄 Live sync · share the room code for others to join</div>
             )}
           </div>
         ) : (
-          messages.map((msg, idx) => (
-            <MessageBubble
-              key={msg.id}
-              message={msg}
-              messageIndex={idx}
-              onBranch={isReadOnly && onBranchRoom ? handleBranch : null}
-            />
-          ))
+          messages.map((msg, idx) => {
+            const isSelected = selectionMode &&
+              selectionRange.start !== null &&
+              idx >= selectionRange.start && idx <= (selectionRange.end ?? selectionRange.start)
+
+            return (
+              <MessageBubble
+                key={msg.id || idx}
+                message={msg}
+                messageIndex={idx}
+                isSelected={isSelected}
+                inSelectionMode={selectionMode}
+                onTapInSelectionMode={() => handleMessageTap(idx)}
+                onEnterSelectionMode={() => enterSelectionMode(idx)}
+                onHandleMove={handleHandleMove}
+                showBranchHints={selectionMode}
+                isFirstSelected={selectionMode && idx === selectionRange.start}
+                isLastSelected={selectionMode && idx === selectionRange.end}
+                msgRef={el => { msgRefs.current[idx] = el }}
+              />
+            )
+          })
         )}
 
         {/* Routing notice + typing indicator */}
-        {isLoading && (
+        {isSending && (
           <div className="chat-generation-status">
-            {routingNotice && (
-              <span className="routing-notice">{routingNotice}</span>
-            )}
+            {routingNotice && <span className="routing-notice">{routingNotice}</span>}
             {typingCharacter && <TypingIndicator character={typingCharacter} />}
           </div>
         )}
@@ -374,19 +494,46 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onBranchRoom
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input — hidden for read-only rooms; replaced with branch CTA */}
+      {/* ── Branch selection floating bar ── */}
+      {selectionMode && (
+        <div className="chat-selection-bar">
+          <button className="chat-selection-cancel" onClick={exitSelectionMode} type="button">
+            ✕ Cancel
+          </button>
+          <span className="chat-selection-count">
+            {selectedMessages.length > 0
+              ? `${selectedMessages.length} message${selectedMessages.length !== 1 ? 's' : ''} selected`
+              : 'Tap messages to select'}
+          </span>
+          <button
+            className="chat-selection-branch-btn"
+            onClick={handleBranchFromSelection}
+            disabled={selectedMessages.length === 0}
+            type="button"
+          >
+            ⎇ Branch
+          </button>
+        </div>
+      )}
+
+      {/* ── Input — hidden for read-only rooms ── */}
       {isReadOnly ? (
         <div className="chat-readonly-bar">
           <span className="chat-readonly-label">🔒 Read-only room</span>
-          {onBranchRoom && (
+          {onOpenBranchConfig && (
             <button
               className="chat-readonly-branch-btn"
               type="button"
               onClick={() => {
-                // Branch from the last message, or from the start if empty
                 const lastMsg = messages[messages.length - 1]
-                if (lastMsg) handleBranch(lastMsg, messages.length - 1)
-                else onBranchRoom(room.code, { messageId: null, messageIndex: 0, timestamp: new Date().toISOString(), contentSnippet: '' })
+                if (lastMsg) {
+                  onOpenBranchConfig({
+                    parentRoomId:       room.id,
+                    branchedAtSequence: lastMsg.sequenceNumber,
+                    branchDepth:        (room.branchDepth || 0) + 1,
+                    foundingMessages:   messages.slice(-5), // last 5 messages as context
+                  })
+                }
               }}
             >
               ⎇ Branch this room
@@ -399,25 +546,22 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onBranchRoom
             <textarea
               ref={textareaRef}
               className="chat-textarea"
-              placeholder={isLoading ? 'Characters are responding…' : 'Message the group…'}
+              placeholder={isSending ? 'Characters are responding…' : 'Message the group…'}
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              disabled={isLoading}
+              disabled={isSending}
               rows={1}
             />
 
-            {/* Send / Stop button — same position, swaps on loading */}
-            {isLoading ? (
+            {isSending ? (
               <button
                 type="button"
                 className="send-btn stop-btn"
                 onClick={handleStop}
                 onTouchEnd={(e) => { e.preventDefault(); handleStop() }}
                 title="Stop generation"
-              >
-                ■
-              </button>
+              >■</button>
             ) : (
               <button
                 type="button"
@@ -426,13 +570,11 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onBranchRoom
                 onTouchEnd={(e) => { e.preventDefault(); if (input.trim()) handleSend() }}
                 disabled={!input.trim()}
                 title="Send (Enter)"
-              >
-                →
-              </button>
+              >→</button>
             )}
           </div>
           <div className="chat-input-hint">
-            {isLoading
+            {isSending
               ? 'Tap ■ to stop · Shift+Enter for new line'
               : 'Enter to send · Shift+Enter for new line'}
             {isSupabaseConfigured && <span className="chat-input-hint-sync"> · Live sync on</span>}

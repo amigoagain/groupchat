@@ -1,8 +1,15 @@
+/**
+ * roomUtils.js
+ * ─────────────────────────────────────────────────────────────
+ * All reads and writes for the rooms table.
+ * Messages are now in the messages table — see messageUtils.js.
+ * ─────────────────────────────────────────────────────────────
+ */
 import { supabase, isSupabaseConfigured } from '../lib/supabase.js'
 
 const LS_PREFIX = 'groupchat_room_'
 
-// ─── helpers ────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 export function generateRoomCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -15,7 +22,7 @@ export function formatTime(isoString) {
   return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-// ─── localStorage helpers ────────────────────────────────────────────────────
+// ── localStorage helpers (room metadata only — no messages) ──────────────────
 
 function lsSave(code, roomData) {
   try { localStorage.setItem(LS_PREFIX + code, JSON.stringify(roomData)) } catch {}
@@ -28,119 +35,115 @@ function lsLoad(code) {
   } catch { return null }
 }
 
-// ─── Map Supabase row → room object ──────────────────────────────────────────
+// ── Row → room object ─────────────────────────────────────────────────────────
 
-function rowToRoom(data) {
+export function rowToRoom(data) {
   return {
-    code: data.code,
-    mode: data.mode,
-    characters: data.characters,
-    messages: data.messages || [],
-    createdAt: data.created_at,
-    createdBy: data.created_by || null,
-    lastMessagePreview: data.last_message_preview || null,
-    lastActivity: data.last_activity || data.created_at,
-    participantCount: data.participant_count || 0,
-    // Feature 7 — visibility + branch genealogy
-    visibility: data.visibility || 'private',
-    parentRoomId: data.parent_room_id || null,
-    branchedAt: data.branched_at || null,
+    id:                  data.id,
+    code:                data.code,
+    mode:                data.mode,
+    characters:          data.characters || [],
+    createdAt:           data.created_at,
+    createdByUserId:     data.created_by_user_id || null,
+    createdByName:       data.created_by_name || 'Guest',
+    lastMessagePreview:  data.last_message_preview || null,
+    lastActivity:        data.last_activity || data.created_at,
+    participantCount:    data.participant_count || 0,
+    visibility:          data.visibility || 'private',
+    parentRoomId:        data.parent_room_id || null,
+    branchedAtSequence:  data.branched_at_sequence || null,
+    branchDepth:         data.branch_depth || 0,
+    foundingContext:     data.founding_context || null,
   }
 }
 
-// ─── Supabase diagnostic ─────────────────────────────────────────────────────
+// ── Supabase diagnostic ───────────────────────────────────────────────────────
 
-/**
- * Quick connectivity check — call once on startup to catch RLS / table issues.
- * Logs clearly to the browser console so problems are easy to spot.
- */
 export async function diagnoseSupabase() {
   if (!isSupabaseConfigured) {
     console.info('[GroupChat] Supabase not configured — running in localStorage-only mode.')
     return false
   }
-
-  const { error } = await supabase
-    .from('rooms')
-    .select('code')
-    .limit(1)
-
+  const { error } = await supabase.from('rooms').select('code').limit(1)
   if (error) {
     console.error(
       '[GroupChat] ⚠️  Supabase rooms table is NOT accessible.\n' +
       `  Code: ${error.code}  Message: ${error.message}\n` +
-      '  Most likely cause: missing RLS policies or table does not exist.\n' +
-      '  Run supabase-room-setup.sql in your Supabase SQL editor to fix this.'
+      '  Run supabase-schema.sql in your Supabase SQL editor to fix this.'
     )
     return false
   }
-
   console.info('[GroupChat] ✓ Supabase rooms table is accessible.')
   return true
 }
 
-// ─── public API ──────────────────────────────────────────────────────────────
+// ── Public API ────────────────────────────────────────────────────────────────
 
 /**
  * Create a new room.
- * Saves to Supabase first (fully awaited), then caches in localStorage.
- * If Supabase fails the room is still usable locally — but we log the error
- * clearly so it's obvious the shared link won't work.
  *
- * @param {object} mode
- * @param {array}  characters
- * @param {string|null} createdBy
+ * @param {object}  mode
+ * @param {array}   characters
+ * @param {string}  createdByName        — display name (guest username or auth username)
+ * @param {string|null} createdByUserId  — users.id UUID for authenticated users
  * @param {'private'|'unlisted'|'read-only'|'moderated-public'|'open'} visibility
- * @param {{ parentRoomId: string, branchedAt: object }|null} branchData
+ * @param {object|null} branchData       — { parentRoomId: UUID, branchedAtSequence: int, branchDepth: int, foundingContext: [] }
+ * @returns {Promise<Room>}
  */
 export async function createRoom(
   mode,
   characters,
-  createdBy = null,
-  visibility = 'private',
-  branchData = null,
+  createdByName   = 'Guest',
+  createdByUserId = null,
+  visibility      = 'private',
+  branchData      = null,
 ) {
   const code = generateRoomCode()
-  const now = new Date().toISOString()
+  const now  = new Date().toISOString()
+
   const room = {
+    id:                null, // assigned by Supabase
     code,
     mode,
     characters,
-    messages: [],
-    createdAt: now,
-    createdBy,
-    lastMessagePreview: null,
-    lastActivity: now,
-    participantCount: 1,
+    createdAt:           now,
+    createdByUserId,
+    createdByName,
+    lastMessagePreview:  null,
+    lastActivity:        now,
+    participantCount:    1,
     visibility,
-    parentRoomId: branchData?.parentRoomId || null,
-    branchedAt: branchData?.branchedAt || null,
+    parentRoomId:        branchData?.parentRoomId        || null,
+    branchedAtSequence:  branchData?.branchedAtSequence  || null,
+    branchDepth:         branchData?.branchDepth         || 0,
+    foundingContext:     branchData?.foundingContext      || null,
   }
 
   if (isSupabaseConfigured) {
-    const insertPayload = {
+    const payload = {
       code,
       mode,
       characters,
-      messages: [],
-      created_by: createdBy,
-      last_activity: now,
-      participant_count: 1,
+      created_by_name:       createdByName,
+      created_by_user_id:    createdByUserId,
+      last_activity:         now,
+      participant_count:     1,
       visibility,
+      parent_room_id:        branchData?.parentRoomId        || null,
+      branched_at_sequence:  branchData?.branchedAtSequence  || null,
+      branch_depth:          branchData?.branchDepth         || 0,
+      founding_context:      branchData?.foundingContext      || null,
     }
-    if (branchData?.parentRoomId)  insertPayload.parent_room_id = branchData.parentRoomId
-    if (branchData?.branchedAt)    insertPayload.branched_at    = branchData.branchedAt
 
-    const { error } = await supabase.from('rooms').insert(insertPayload)
-
+    const { data, error } = await supabase.from('rooms').insert(payload).select().single()
     if (error) {
       console.error(
         `[GroupChat] ❌ createRoom Supabase insert FAILED for room ${code}.\n` +
-        `  Code: ${error.code}  Message: ${error.message}\n` +
-        '  This room exists only in localStorage — shared links will NOT work.'
+        `  Code: ${error.code}  Message: ${error.message}`
       )
     } else {
-      console.info(`[GroupChat] ✓ Room ${code} saved to Supabase (visibility: ${visibility}).`)
+      room.id = data.id
+      console.info(`[GroupChat] ✓ Room ${code} (${data.id}) created (visibility: ${visibility}).`)
     }
   }
 
@@ -149,15 +152,13 @@ export async function createRoom(
 }
 
 /**
- * Load a room by code. Tries Supabase first, falls back to localStorage.
- * Logs clearly so URL-sharing failures are easy to diagnose in the console.
+ * Load a room by code (case-insensitive).
+ * Tries Supabase first, falls back to localStorage.
  */
 export async function loadRoom(code) {
   const upper = code.trim().toUpperCase()
 
   if (isSupabaseConfigured) {
-    console.info(`[GroupChat] Looking up room ${upper} in Supabase…`)
-
     const { data, error } = await supabase
       .from('rooms')
       .select('*')
@@ -165,137 +166,73 @@ export async function loadRoom(code) {
       .single()
 
     if (error) {
-      if (error.code === 'PGRST116') {
-        // "no rows returned" — room genuinely does not exist in the DB
-        console.warn(`[GroupChat] Room ${upper} not found in Supabase (no matching row).`)
-      } else {
-        // Any other error = RLS policy blocking, table missing, network issue, etc.
-        console.error(
-          `[GroupChat] ❌ Supabase loadRoom error for ${upper}.\n` +
-          `  Code: ${error.code}  Message: ${error.message}\n` +
-          '  Falling back to localStorage. Run supabase-room-setup.sql if this persists.'
-        )
+      if (error.code !== 'PGRST116') {
+        console.warn(`[GroupChat] loadRoom Supabase error for ${upper}:`, error.message)
       }
     } else if (data) {
-      console.info(`[GroupChat] ✓ Room ${upper} loaded from Supabase.`)
       const room = rowToRoom(data)
       lsSave(upper, room)
       return room
     }
   }
 
-  const local = lsLoad(upper)
-  if (local) {
-    console.info(`[GroupChat] Room ${upper} loaded from localStorage (local device only).`)
-  } else {
-    console.warn(`[GroupChat] Room ${upper} not found in Supabase or localStorage.`)
-  }
-  return local
+  return lsLoad(upper)
 }
 
 /**
- * Update just the messages array for a room in both Supabase and localStorage.
- * Also updates last_message_preview and last_activity for inbox display.
- * Safe to fire-and-forget (won't throw).
+ * Fetch rooms the user has visited (by codes list) — for "My Chats".
+ * Authenticated users pull by user_id; guests pull by visited codes.
  */
-export async function updateRoomMessages(code, messages) {
-  const upper = code.toUpperCase()
-  const now = new Date().toISOString()
-
-  const cached = lsLoad(upper)
-  if (cached) lsSave(upper, { ...cached, messages, lastActivity: now })
-
+export async function fetchMyRooms(codes, userId = null) {
   if (isSupabaseConfigured) {
     try {
-      // Build the last message preview from the most recent character message
-      const lastCharMsg = [...messages].reverse().find(m => m.type === 'character')
-      const preview = lastCharMsg
-        ? `${lastCharMsg.characterName}: ${lastCharMsg.content.slice(0, 80).replace(/\n/g, ' ')}`
-        : null
-
-      const { error } = await supabase
+      let query = supabase
         .from('rooms')
-        .update({
-          messages,
-          last_activity: now,
-          ...(preview ? { last_message_preview: preview } : {}),
-        })
-        .eq('code', upper)
-      if (error) {
-        console.error(
-          `[GroupChat] ❌ updateRoomMessages failed for ${upper}.\n` +
-          `  Code: ${error.code}  Message: ${error.message}`
-        )
+        .select('*')
+        .order('last_activity', { ascending: false, nullsFirst: false })
+
+      if (userId) {
+        // Authenticated: owned rooms by this user
+        query = query.eq('created_by_user_id', userId)
+      } else if (codes && codes.length > 0) {
+        // Guest: rooms by visited code list
+        query = query.in('code', codes)
+      } else {
+        return []
       }
-    } catch (err) {
-      console.error(`[GroupChat] updateRoomMessages threw for ${upper}:`, err)
-    }
-  }
-}
 
-/**
- * Fetch only the messages array from Supabase (used for polling).
- * Returns null if Supabase is unavailable or the room doesn't exist.
- */
-export async function fetchRoomMessages(code) {
-  if (!isSupabaseConfigured) return null
-  try {
-    const { data, error } = await supabase
-      .from('rooms')
-      .select('messages')
-      .eq('code', code.toUpperCase())
-      .single()
-    if (error || !data) return null
-    return data.messages || null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Fetch rooms by an array of codes (for "My Chats" inbox tab).
- * Preserves the input codes order (most recently visited first).
- * Falls back to localStorage for codes not found in Supabase.
- */
-export async function fetchMyRooms(codes) {
-  if (!codes || codes.length === 0) return []
-
-  if (isSupabaseConfigured) {
-    try {
-      const { data, error } = await supabase
-        .from('rooms')
-        .select('code, mode, characters, created_at, created_by, last_message_preview, last_activity, participant_count, visibility, parent_room_id, branched_at')
-        .in('code', codes)
-
+      const { data, error } = await query.limit(50)
       if (!error && data) {
-        const byCode = Object.fromEntries(data.map(r => [r.code, rowToRoom(r)]))
-        // Re-order to match the input codes order (most recently visited first)
-        return codes.map(c => byCode[c]).filter(Boolean)
+        const rooms = data.map(rowToRoom)
+        if (!userId) {
+          // Re-order guests rooms to match visited-first order
+          const byCode = Object.fromEntries(rooms.map(r => [r.code, r]))
+          return (codes || []).map(c => byCode[c]).filter(Boolean)
+        }
+        return rooms
       }
     } catch (err) {
-      console.warn('[GroupChat] fetchMyRooms Supabase error, falling back:', err)
+      console.warn('[GroupChat] fetchMyRooms error:', err)
     }
   }
 
   // Fallback: localStorage
-  return codes.map(c => lsLoad(c)).filter(Boolean)
+  if (codes && codes.length > 0) return codes.map(c => lsLoad(c)).filter(Boolean)
+  return []
 }
 
 /**
- * Fetch publicly-listed rooms from Supabase for the Browse All tab.
- * Only surfaces rooms with visibility = 'read-only', 'moderated-public', or 'open'.
- * Private and unlisted rooms are intentionally excluded.
- * Returns an empty array if Supabase is unavailable.
+ * Browse All — publicly listed rooms (read-only, moderated-public, open).
+ * Excludes private and unlisted.
  */
 export async function fetchAllRooms() {
   if (!isSupabaseConfigured) return []
   try {
     const { data, error } = await supabase
       .from('rooms')
-      .select('code, mode, characters, created_at, created_by, last_message_preview, last_activity, participant_count, visibility, parent_room_id, branched_at')
+      .select('*')
       .in('visibility', ['read-only', 'moderated-public', 'open'])
       .order('last_activity', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false })
       .limit(50)
 
     if (!error && data) return data.map(rowToRoom)
@@ -306,7 +243,19 @@ export async function fetchAllRooms() {
 }
 
 /**
- * Increment the participant count for a room (fire-and-forget).
+ * Update a room's visibility (e.g., after creation, via settings).
+ */
+export async function updateRoomVisibility(roomId, visibility) {
+  if (!isSupabaseConfigured || !roomId) return
+  const { error } = await supabase
+    .from('rooms')
+    .update({ visibility })
+    .eq('id', roomId)
+  if (error) console.warn('[GroupChat] updateRoomVisibility error:', error)
+}
+
+/**
+ * Increment the participant count (fire-and-forget).
  */
 export async function incrementParticipantCount(code) {
   if (!isSupabaseConfigured) return
@@ -316,20 +265,18 @@ export async function incrementParticipantCount(code) {
       .select('participant_count')
       .eq('code', code.toUpperCase())
       .single()
-
     if (data) {
-      const newCount = (data.participant_count || 0) + 1
       await supabase
         .from('rooms')
-        .update({ participant_count: newCount })
+        .update({ participant_count: (data.participant_count || 0) + 1 })
         .eq('code', code.toUpperCase())
     }
-  } catch {
-    // Non-critical — ignore errors
-  }
+  } catch {}
 }
 
-// Kept for legacy callers — synchronous localStorage-only write
+/**
+ * Synchronous localStorage-only write (for immediate local persistence).
+ */
 export function saveRoom(code, roomData) {
   lsSave(code.toUpperCase(), roomData)
 }

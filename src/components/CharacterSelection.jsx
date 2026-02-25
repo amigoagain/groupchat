@@ -6,6 +6,17 @@ import {
 } from '../utils/customCharacters.js'
 import { inferDomain, ALL_DOMAINS, DOMAIN_COLORS } from '../utils/domainUtils.js'
 import CreateCharacterModal from './CreateCharacterModal.jsx'
+import { useAuth } from '../contexts/AuthContext.jsx'
+
+// Full visibility spectrum — read-only available to authenticated users
+// moderated-public and open are visible but inactive (coming soon)
+const VISIBILITY_OPTS = [
+  { value: 'private',          icon: '🔒', label: 'Private',          desc: 'Only you via room code' },
+  { value: 'unlisted',         icon: '🔓', label: 'Unlisted',         desc: 'Anyone with the code' },
+  { value: 'read-only',        icon: '📖', label: 'Read-only public', desc: 'Listed; no replies', requiresAuth: true },
+  { value: 'moderated-public', icon: '🛡', label: 'Moderated',       desc: 'Coming soon', disabled: true },
+  { value: 'open',             icon: '🌐', label: 'Open',             desc: 'Coming soon', disabled: true },
+]
 
 const MIN_CHARS = 1
 const MAX_CHARS = 6
@@ -134,7 +145,9 @@ function CharacterRow({ char, isSelected, isMaxed, onToggle, onShowDetail }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function CharacterSelection({ onStartChat, onBack, selectedMode, branchContext }) {
+export default function CharacterSelection({ onStartChat, onBack, selectedMode, branchContext, onSignIn }) {
+  const { isAuthenticated } = useAuth()
+
   const [selected, setSelected]           = useState([])
   const [search, setSearch]               = useState('')
   const [tierFilter, setTierFilter]       = useState('all')
@@ -143,9 +156,8 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode, 
   const [charsLoading, setCharsLoading]   = useState(true)
   const [detailChar, setDetailChar]       = useState(null)
   const [createModal, setCreateModal]     = useState(null)
-  // Feature 7: visibility selector — private (default) or unlisted
-  // read-only is gated (set in Supabase manually), so only private/unlisted here
   const [visibility, setVisibility]       = useState('private')
+  const [showVisibility, setShowVisibility] = useState(false)
 
   useEffect(() => {
     loadAllCharacters()
@@ -260,20 +272,47 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode, 
             )}
           </div>
           <div className="char-start-row">
-            {/* Visibility toggle — private / unlisted */}
-            <div className="visibility-toggle" title="Room visibility">
+            {/* Visibility selector */}
+            <div className="vis-selector-wrap">
               <button
-                className={`visibility-opt${visibility === 'private'  ? ' active' : ''}`}
-                onClick={() => setVisibility('private')}
+                className="vis-selector-btn"
                 type="button"
-              >🔒</button>
-              <button
-                className={`visibility-opt${visibility === 'unlisted' ? ' active' : ''}`}
-                onClick={() => setVisibility('unlisted')}
-                type="button"
-                title="Unlisted — accessible by link/code but not in Browse All"
-              >🔓</button>
+                onClick={() => setShowVisibility(v => !v)}
+                title="Room visibility"
+              >
+                {VISIBILITY_OPTS.find(o => o.value === visibility)?.icon || '🔒'}
+              </button>
+              {showVisibility && (
+                <div className="vis-dropdown">
+                  {VISIBILITY_OPTS.map(opt => {
+                    const needsAuth = opt.requiresAuth && !isAuthenticated
+                    const disabled  = opt.disabled || false
+                    return (
+                      <button
+                        key={opt.value}
+                        className={`vis-opt${visibility === opt.value ? ' active' : ''}${disabled ? ' disabled' : ''}`}
+                        type="button"
+                        onClick={() => {
+                          if (disabled) return
+                          if (needsAuth) { onSignIn?.('Creating a read-only public room requires an account.'); return }
+                          setVisibility(opt.value)
+                          setShowVisibility(false)
+                        }}
+                        title={needsAuth ? 'Sign in required' : opt.desc}
+                      >
+                        <span className="vis-opt-icon">{opt.icon}</span>
+                        <span className="vis-opt-text">
+                          <span className="vis-opt-label">{opt.label}</span>
+                          <span className="vis-opt-desc">{needsAuth ? 'Sign in required' : opt.desc}</span>
+                        </span>
+                        {visibility === opt.value && <span className="vis-opt-check">✓</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
+
             <button
               className="char-start-btn"
               onClick={() => canStart && onStartChat(selected, visibility)}

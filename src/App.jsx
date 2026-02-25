@@ -5,32 +5,42 @@ import InboxScreen from './components/InboxScreen.jsx'
 import ModeSelection from './components/ModeSelection.jsx'
 import CharacterSelection from './components/CharacterSelection.jsx'
 import ChatInterface from './components/ChatInterface.jsx'
+import AuthScreen from './components/AuthScreen.jsx'
+import BranchConfig from './components/BranchConfig.jsx'
 import UsernameModal from './components/UsernameModal.jsx'
 import { hasApiKey } from './services/claudeApi.js'
 import { loadRoom, createRoom, diagnoseSupabase, incrementParticipantCount } from './utils/roomUtils.js'
 import { hasUsername, setUsername, getUsername } from './utils/username.js'
 import { markRoomVisited, markAllSeen } from './utils/inboxUtils.js'
+import { useAuth } from './contexts/AuthContext.jsx'
 
 export default function App() {
   const { code: urlCode } = useParams()
   const navigate = useNavigate()
+  const { isAuthenticated, username: authUsername, userId, authLoading } = useAuth()
 
   const [screen, setScreen] = useState('loading')
-  const [isPremium, setIsPremium] = useState(false)
   const [selectedMode, setSelectedMode] = useState(null)
   const [selectedCharacters, setSelectedCharacters] = useState([])
   const [currentRoom, setCurrentRoom] = useState(null)
   const [joinError, setJoinError] = useState('')
   const [pendingCode, setPendingCode] = useState(urlCode || null)
 
-  // Feature 7: branch context — set when user branches from a read-only room
-  // Shape: { parentRoomId: string, branchedAt: { messageId, messageIndex, timestamp, contentSnippet } }
-  const [branchContext, setBranchContext] = useState(null)
+  // Auth screen
+  const [authPromptReason, setAuthPromptReason] = useState('')
+
+  // Branch config screen
+  const [branchConfigData, setBranchConfigData] = useState(null)
 
   // Username gate: true means we need to collect the name first
   const [needsUsername, setNeedsUsername] = useState(!hasUsername())
 
-  // ── Helpers ──────────────────────────────────────────────────────────────────
+  // ── Derived display name ──────────────────────────────────────────────────
+  const displayName = isAuthenticated
+    ? (authUsername || getUsername() || 'User')
+    : (getUsername() || 'Guest')
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
   const loadAndEnterRoom = async (code) => {
     setScreen('loading')
     try {
@@ -39,7 +49,7 @@ export default function App() {
         setCurrentRoom(room)
         setJoinError('')
         markRoomVisited(code)
-        markAllSeen(code, (room.messages || []).length)
+        markAllSeen(code, 0) // messages now in separate table
         incrementParticipantCount(code) // fire-and-forget
         navigate(`/room/${code.trim().toUpperCase()}`, { replace: true })
         setScreen('chat')
@@ -55,15 +65,15 @@ export default function App() {
     }
   }
 
-  // ── Initial load — only runs once username is ready ──────────────────────────
+  // ── Initial load — waits for username + auth ──────────────────────────────
   useEffect(() => {
     if (needsUsername) {
       setScreen('loading')
       return
     }
+    if (authLoading) return // wait for auth session to resolve
 
     const init = async () => {
-      // Run Supabase diagnostic on startup — logs to browser console
       diagnoseSupabase()
 
       if (!hasApiKey()) {
@@ -83,13 +93,12 @@ export default function App() {
 
     init()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsUsername]) // re-runs when username modal is dismissed
+  }, [needsUsername, authLoading])
 
-  // ── Handlers ─────────────────────────────────────────────────────────────────
+  // ── Handlers ──────────────────────────────────────────────────────────────
   const handleUsernameSave = (name) => {
     setUsername(name)
     setNeedsUsername(false)
-    // init() will fire via the needsUsername effect above
   }
 
   const handleApiKeySet = async () => {
@@ -119,24 +128,21 @@ export default function App() {
 
   /**
    * Called by CharacterSelection when the user taps Start.
+   * Creates a normal (non-branch) room.
+   *
    * @param {array}  characters
-   * @param {'private'|'unlisted'} visibility  — default 'private'
+   * @param {'private'|'unlisted'|'read-only'} visibility
    */
   const handleStartChat = async (characters, visibility = 'private') => {
     setSelectedCharacters(characters)
-
-    // If we have a pending branch context, wire it into the new room
     const room = await createRoom(
       selectedMode,
       characters,
-      getUsername(),
+      displayName,
+      isAuthenticated ? userId : null,
       visibility,
-      branchContext, // null for normal rooms, { parentRoomId, branchedAt } for branches
+      null, // no branchData for new rooms
     )
-
-    // Clear branch context after use
-    setBranchContext(null)
-
     setCurrentRoom(room)
     markRoomVisited(room.code)
     navigate(`/room/${room.code}`, { replace: true })
@@ -144,20 +150,49 @@ export default function App() {
   }
 
   /**
-   * Feature 7: called when a user clicks Branch on a message in a read-only room.
-   * Stores the branch context and starts the normal room-creation flow.
-   *
-   * @param {string} parentRoomId  — room code of the source room
-   * @param {{ messageId: string, messageIndex: number, timestamp: string, contentSnippet: string }} branchedAt
+   * Show the auth screen (magic link sign-in).
+   * @param {string} reason — optional prompt reason shown to user
    */
-  const handleBranchRoom = (parentRoomId, branchedAt) => {
-    setBranchContext({ parentRoomId, branchedAt })
-    // Return to mode selection — the branch context will be picked up in handleStartChat
-    setCurrentRoom(null)
-    setSelectedMode(null)
-    setSelectedCharacters([])
-    navigate('/', { replace: true })
-    setScreen('mode')
+  const handleSignIn = (reason = '') => {
+    setAuthPromptReason(reason)
+    setScreen('auth')
+  }
+
+  /**
+   * Called by ChatInterface / InboxScreen when user wants to branch.
+   * Auth-gates: if not authenticated, show auth screen first.
+   *
+   * @param {{ parentRoomId, branchedAtSequence, branchDepth, foundingMessages }} data
+   */
+  const handleOpenBranchConfig = (data) => {
+    if (!isAuthenticated) {
+      handleSignIn('Branching a conversation requires a free account.')
+      return
+    }
+    setBranchConfigData(data)
+    setScreen('branch-config')
+  }
+
+  /**
+   * Called by BranchConfig when the user confirms the branch.
+   * Creates a new branch room and navigates to it.
+   *
+   * @param {{ selectedChars, roomName, visibility, branchData }} config
+   */
+  const handleBranchConfirm = async ({ selectedChars, roomName, visibility, branchData }) => {
+    const room = await createRoom(
+      selectedMode || { id: 'chat', name: 'Chat', icon: '💬', modeContext: '' },
+      selectedChars,
+      displayName,
+      isAuthenticated ? userId : null,
+      visibility,
+      branchData,
+    )
+    setBranchConfigData(null)
+    setCurrentRoom(room)
+    markRoomVisited(room.code)
+    navigate(`/room/${room.code}`, { replace: true })
+    setScreen('chat')
   }
 
   const handleUpdateRoom = (updatedRoom) => setCurrentRoom(updatedRoom)
@@ -166,7 +201,7 @@ export default function App() {
     setCurrentRoom(null)
     setSelectedMode(null)
     setSelectedCharacters([])
-    setBranchContext(null)
+    setBranchConfigData(null)
     navigate('/', { replace: true })
     setScreen('inbox')
   }
@@ -176,7 +211,7 @@ export default function App() {
     setScreen('mode')
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="app">
       {/* Username modal — shown as an overlay before anything else on first visit */}
@@ -190,23 +225,15 @@ export default function App() {
         </div>
       )}
 
-      {screen !== 'setup' && screen !== 'loading' && screen !== 'inbox' && (
-        <div className="premium-toggle-bar">
-          <span className={`premium-toggle-label ${isPremium ? 'active' : ''}`}>
-            {isPremium ? '✦ Premium Mode' : 'Free Mode'}
-          </span>
-          <button
-            className={`premium-toggle-btn ${isPremium ? 'active' : ''}`}
-            onClick={() => setIsPremium(p => !p)}
-            title="Toggle premium mode (for testing)"
-          >
-            {isPremium ? 'Disable Premium' : 'Enable Premium'}
-          </button>
-        </div>
-      )}
-
       {screen === 'setup' && (
         <SetupScreen onApiKeySet={handleApiKeySet} />
+      )}
+
+      {screen === 'auth' && (
+        <AuthScreen
+          onBack={() => setScreen(currentRoom ? 'chat' : 'inbox')}
+          promptReason={authPromptReason}
+        />
       )}
 
       {screen === 'inbox' && (
@@ -214,6 +241,7 @@ export default function App() {
           onStartRoom={handleStartRoom}
           onOpenRoom={handleOpenRoom}
           onJoinRoom={handleJoinRoom}
+          onSignIn={() => handleSignIn()}
           joinError={joinError}
           onClearJoinError={() => setJoinError('')}
         />
@@ -223,8 +251,6 @@ export default function App() {
         <ModeSelection
           onSelectMode={handleSelectMode}
           onBack={handleBackToStart}
-          isPremium={isPremium}
-          branchContext={branchContext}
         />
       )}
 
@@ -233,7 +259,18 @@ export default function App() {
           onStartChat={handleStartChat}
           onBack={handleBackToMode}
           selectedMode={selectedMode}
-          branchContext={branchContext}
+          onSignIn={handleSignIn}
+        />
+      )}
+
+      {screen === 'branch-config' && branchConfigData && (
+        <BranchConfig
+          foundingMessages={branchConfigData.foundingMessages}
+          parentRoomId={branchConfigData.parentRoomId}
+          branchedAtSequence={branchConfigData.branchedAtSequence}
+          branchDepth={branchConfigData.branchDepth}
+          onConfirm={handleBranchConfirm}
+          onCancel={() => setScreen(currentRoom ? 'chat' : 'inbox')}
         />
       )}
 
@@ -242,8 +279,7 @@ export default function App() {
           room={currentRoom}
           onUpdateRoom={handleUpdateRoom}
           onBack={handleBackToStart}
-          isPremium={isPremium}
-          onBranchRoom={handleBranchRoom}
+          onOpenBranchConfig={handleOpenBranchConfig}
         />
       )}
     </div>
