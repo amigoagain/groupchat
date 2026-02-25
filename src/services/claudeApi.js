@@ -81,7 +81,7 @@ function buildSystemPrompt(character, mode, allCharacters, responseWeight = 'ful
   let weightInstruction = ''
   if (responseWeight === 'brief') {
     weightInstruction =
-      '\n\nWEAVER ROUTING — BRIEF RESPONSE: The Weaver has determined this topic is not your ' +
+      '\n\nGARDENER ROUTING — BRIEF RESPONSE: The Gardener has determined this topic is not your ' +
       'primary domain. Respond in 1–2 sentences only. React and add a quick perspective, ' +
       'but let others lead this exchange.'
   }

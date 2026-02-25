@@ -6,7 +6,7 @@ import { getCharacterResponse, generateInviteMessage } from '../services/claudeA
 import { routeMessage, formatRoutingNotice } from '../services/weaverRouter.js'
 import { isSupabaseConfigured } from '../lib/supabase.js'
 import { insertMessage, fetchMessages, fetchMessagesAfter } from '../utils/messageUtils.js'
-import { saveRoom } from '../utils/roomUtils.js'
+import { saveRoom, ensureParticipant, getMyRole, listParticipants, setParticipantRole } from '../utils/roomUtils.js'
 import { getUsername, setUsername } from '../utils/username.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 
@@ -28,6 +28,11 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   // ── Founding context collapse (branch rooms) ───────────────────────────────
   const [foundingCollapsed, setFoundingCollapsed] = useState(false)
 
+  // ── Participant management (admin) ─────────────────────────────────────────
+  const [showParticipants,  setShowParticipants]  = useState(false)
+  const [participants,      setParticipants]      = useState([])
+  const [myRole,            setMyRole]            = useState(null)
+
   // ── Branch selection mode ──────────────────────────────────────────────────
   const [selectionMode,  setSelectionMode]  = useState(false)
   const [selectionRange, setSelectionRange] = useState({ start: null, end: null })
@@ -45,16 +50,31 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   useEffect(() => { isSendingRef.current = isSending }, [isSending])
   useEffect(() => { messagesRef.current = messages },  [messages])
 
-  // ── Load messages from the messages table on mount ─────────────────────────
+  // ── Derived admin state ────────────────────────────────────────────────────
+  const isCreator = isAuthenticated && userId && room.createdByUserId === userId
+
+  // ── Load messages + resolve participant role on mount ─────────────────────
   useEffect(() => {
     if (!room?.id) {
       setIsLoading(false)
       return
     }
+
     fetchMessages(room.id)
       .then(msgs => { setMessages(msgs); setIsLoading(false) })
       .catch(() => setIsLoading(false))
-  }, [room?.id])
+
+    // Register participant record
+    if (isAuthenticated && userId) {
+      const uname = authUsername || getUsername() || 'User'
+      ensureParticipant(room.id, userId, uname, isCreator)
+      if (!isCreator) {
+        getMyRole(room.id, userId).then(role => setMyRole(role))
+      } else {
+        setMyRole('admin')
+      }
+    }
+  }, [room?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Polling for new messages ───────────────────────────────────────────────
   useEffect(() => {
@@ -311,8 +331,23 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     exitSelectionMode()
   }, [onOpenBranchConfig, selectedMessages, room, exitSelectionMode])
 
+  // ── Participant management ─────────────────────────────────────────────────
+  const handleOpenParticipants = async () => {
+    const list = await listParticipants(room.id)
+    setParticipants(list)
+    setShowParticipants(true)
+  }
+
+  const handleToggleRole = async (p) => {
+    const newRole = p.role === 'participant' ? 'viewer' : 'participant'
+    await setParticipantRole(room.id, p.user_id, newRole)
+    setParticipants(prev => prev.map(x => x.user_id === p.user_id ? { ...x, role: newRole } : x))
+  }
+
   // ── Derived state ──────────────────────────────────────────────────────────
   const isReadOnly = room.visibility === 'read-only'
+  // Creators (admins) can always type; authenticated participants can type; viewers cannot
+  const canType    = !isReadOnly || isCreator || myRole === 'participant'
   const isEmpty    = !isLoading && messages.length === 0
 
   const shareLabel = {
@@ -381,6 +416,17 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
               type="button"
             >
               {selectionMode ? '✕' : '⎇'}
+            </button>
+          )}
+
+          {isCreator && room.visibility === 'read-only' && (
+            <button
+              className="settings-btn"
+              onClick={handleOpenParticipants}
+              title="Manage participants"
+              type="button"
+            >
+              👥
             </button>
           )}
 
@@ -533,8 +579,8 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
         </div>
       )}
 
-      {/* ── Input — hidden for read-only rooms ── */}
-      {isReadOnly ? (
+      {/* ── Input — hidden for read-only rooms (unless admin or participant) ── */}
+      {isReadOnly && !canType ? (
         <div className="chat-readonly-bar">
           <span className="chat-readonly-label">🔒 Read-only room</span>
           {onOpenBranchConfig && (
@@ -548,7 +594,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
                     parentRoomId:       room.id,
                     branchedAtSequence: lastMsg.sequenceNumber,
                     branchDepth:        (room.branchDepth || 0) + 1,
-                    foundingMessages:   messages.slice(-5), // last 5 messages as context
+                    foundingMessages:   messages.slice(-5),
                   })
                 }
               }}
@@ -601,6 +647,42 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
       {showRenameModal && (
         <UsernameModal onSave={handleRenameSave} isRename={true} />
+      )}
+
+      {/* ── Participant management panel (admin only, read-only rooms) ── */}
+      {showParticipants && (
+        <div className="participants-overlay" onClick={() => setShowParticipants(false)}>
+          <div className="participants-panel" onClick={e => e.stopPropagation()}>
+            <div className="participants-header">
+              <span className="participants-title">Participants</span>
+              <button className="participants-close" onClick={() => setShowParticipants(false)} type="button">✕</button>
+            </div>
+            <div className="participants-subtext">
+              Toggle who can type. Viewers can read; participants can reply.
+            </div>
+            {participants.length === 0 ? (
+              <div className="participants-empty">No one has joined yet.</div>
+            ) : (
+              <div className="participants-list">
+                {participants.map(p => (
+                  <div key={p.user_id} className="participants-row">
+                    <div className="participants-name">{p.username || 'Anonymous'}</div>
+                    <button
+                      className={`participants-role-btn ${p.role === 'participant' ? 'active' : ''}`}
+                      onClick={() => handleToggleRole(p)}
+                      type="button"
+                    >
+                      {p.role === 'participant' ? '✓ Can type' : 'Viewer'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="participants-admin-note">
+              You (admin) can always type in this room.
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

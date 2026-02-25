@@ -280,3 +280,63 @@ export async function incrementParticipantCount(code) {
 export function saveRoom(code, roomData) {
   lsSave(code.toUpperCase(), roomData)
 }
+
+// ── Participant roles ─────────────────────────────────────────────────────────
+// Roles: 'admin' | 'participant' | 'viewer'
+// Creator always holds admin. Others join as 'viewer' and can be upgraded.
+
+/**
+ * Ensure the current user has a participant record.
+ * Admins (creators) are auto-inserted with role='admin'.
+ * Others are inserted as 'viewer' (upsert — safe to call on every room load).
+ */
+export async function ensureParticipant(roomId, userId, username, isAdmin = false) {
+  if (!isSupabaseConfigured || !roomId || !userId) return
+  const role = isAdmin ? 'admin' : 'viewer'
+  await supabase
+    .from('room_participants')
+    .upsert({ room_id: roomId, user_id: userId, username, role },
+            { onConflict: 'room_id,user_id', ignoreDuplicates: !isAdmin })
+    .select()
+}
+
+/**
+ * Get the current user's role in a room.
+ * Returns 'admin' | 'participant' | 'viewer' | null (not in table).
+ */
+export async function getMyRole(roomId, userId) {
+  if (!isSupabaseConfigured || !roomId || !userId) return null
+  const { data } = await supabase
+    .from('room_participants')
+    .select('role')
+    .eq('room_id', roomId)
+    .eq('user_id', userId)
+    .single()
+  return data?.role || null
+}
+
+/**
+ * List all non-admin participants in a room (for the admin management panel).
+ */
+export async function listParticipants(roomId) {
+  if (!isSupabaseConfigured || !roomId) return []
+  const { data } = await supabase
+    .from('room_participants')
+    .select('user_id, username, role, joined_at')
+    .eq('room_id', roomId)
+    .neq('role', 'admin')
+    .order('joined_at', { ascending: true })
+  return data || []
+}
+
+/**
+ * Set a participant's role (admin action only — no server-side enforcement here,
+ * rely on RLS in production).
+ */
+export async function setParticipantRole(roomId, userId, role) {
+  if (!isSupabaseConfigured || !roomId || !userId) return
+  await supabase
+    .from('room_participants')
+    .upsert({ room_id: roomId, user_id: userId, role },
+            { onConflict: 'room_id,user_id' })
+}

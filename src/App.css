@@ -1,38 +1,40 @@
 /* ============================================================
-   DESIGN TOKENS
+   DESIGN TOKENS — KEPOS LIGHT THEME
    ============================================================ */
 :root {
-  --bg-primary: #090d18;
-  --bg-secondary: #0e1525;
-  --bg-surface: #131c30;
-  --bg-card: #192236;
-  --bg-card-hover: #1f2b42;
-  --border: #243050;
-  --border-light: #2d3d60;
+  --bg-primary:       #FAF8F4;
+  --bg-secondary:     #F4F1EA;
+  --bg-surface:       #EDEAE2;
+  --bg-card:          #F6F3EE;
+  --bg-card-hover:    #EDE9E1;
+  --bg-surface-hover: rgba(0, 0, 0, 0.04);
+  --border:           #DDD8CF;
+  --border-light:     #E8E4DC;
 
-  --text-primary: #e8edf8;
-  --text-secondary: #8899bb;
-  --text-muted: #4d5f80;
+  --text-primary:   #1C1C1A;
+  --text-secondary: #5C5851;
+  --text-muted:     #9E9890;
 
-  --accent: #4f7cff;
-  --accent-glow: rgba(79, 124, 255, 0.2);
-  --accent-hover: #6b93ff;
+  --accent:       #4A5C3A;
+  --accent-glow:  rgba(74, 92, 58, 0.12);
+  --accent-hover: #3C4D2F;
 
-  --success: #2ed573;
-  --warning: #ffd700;
-  --error: #ff4757;
+  --success: #3D6B4A;
+  --warning: #8C7032;
+  --error:   #8C3C2C;
 
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 18px;
-  --radius-xl: 24px;
+  --radius-sm:   8px;
+  --radius-md:   12px;
+  --radius-lg:   18px;
+  --radius-xl:   24px;
+  --radius-pill: 50px;
 
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.5);
-  --shadow-glow: 0 0 30px rgba(79, 124, 255, 0.15);
+  --shadow-sm:   0 1px 3px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04);
+  --shadow-md:   0 2px 12px rgba(0,0,0,0.08), 0 4px 24px rgba(0,0,0,0.05);
+  --shadow-lg:   0 4px 20px rgba(0,0,0,0.09), 0 8px 40px rgba(0,0,0,0.06);
+  --shadow-glow: 0 0 30px rgba(74, 92, 58, 0.10);
 
-  --transition: all 0.2s ease;
+  --transition:      all 0.2s ease;
   --transition-slow: all 0.35s ease;
 }
 
@@ -86,6 +88,34 @@ input {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+/* ============================================================
+   PERSISTENT KEPOS MARK
+   ============================================================ */
+
+.kepos-mark {
+  position: fixed;
+  top: 12px;
+  left: 14px;
+  z-index: 9999;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: lowercase;
+  color: var(--accent);
+  opacity: 0.45;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  transition: opacity 0.18s, background 0.18s;
+  user-select: none;
+}
+.kepos-mark:hover {
+  opacity: 1;
+  background: var(--accent-glow);
 }
 
 /* ============================================================
@@ -268,14 +298,14 @@ input {
   color: white;
   font-size: 15px;
   font-weight: 700;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
   letter-spacing: 0.3px;
 }
 
 .setup-submit-btn:hover:not(:disabled) {
   background: var(--accent-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 20px rgba(79, 124, 255, 0.35);
+  box-shadow: 0 4px 20px rgba(74, 92, 58, 0.25);
 }
 
 .setup-submit-btn:disabled {
@@ -353,13 +383,13 @@ input {
   font-weight: 700;
   border-radius: 50px;
   letter-spacing: 0.3px;
-  box-shadow: 0 4px 24px rgba(79, 124, 255, 0.35);
+  box-shadow: 0 4px 24px rgba(74, 92, 58, 0.25);
 }
 
 .start-btn-primary:hover {
   background: var(--accent-hover);
   transform: translateY(-2px);
-  box-shadow: 0 8px 32px rgba(79, 124, 255, 0.45);
+  box-shadow: 0 8px 32px rgba(74, 92, 58, 0.30);
 }
 
 .start-divider {
@@ -1242,7 +1272,7 @@ input {
 .send-btn {
   width: 42px;
   height: 42px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   background: var(--accent);
   color: white;
   font-size: 18px;
@@ -1502,7 +1532,7 @@ input {
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  box-shadow: var(--shadow-lg), 0 0 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-lg);
   animation: modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
 }
@@ -1911,7 +1941,7 @@ input {
 
 .generate-section {
   background: linear-gradient(135deg, rgba(79, 124, 255, 0.07), rgba(167, 139, 250, 0.07));
-  border: 1px solid rgba(79, 124, 255, 0.2);
+  border: 1px solid rgba(74, 92, 58, 0.12);
   border-radius: var(--radius-lg);
   padding: 16px 18px;
   margin-bottom: 4px;
@@ -2093,7 +2123,7 @@ input {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  box-shadow: var(--shadow-lg), 0 0 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-lg);
   animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -2400,7 +2430,7 @@ input {
 }
 
 .char-filter-tab.active .char-filter-count {
-  background: rgba(79, 124, 255, 0.15);
+  background: rgba(74, 92, 58, 0.15);
   color: var(--accent);
 }
 
@@ -3856,6 +3886,121 @@ input {
   transform: translateY(-1px);
 }
 
+/* ── Participant management panel ─────────────────────────────────────────────── */
+
+.participants-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 0 env(safe-area-inset-bottom, 0);
+}
+
+.participants-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 20px 20px 0 0;
+  width: 100%;
+  max-width: 480px;
+  padding: 20px 20px 28px;
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 0.25s ease;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(40px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.participants-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.participants-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.participants-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.participants-close:hover { color: var(--text-primary); background: var(--bg-surface); }
+
+.participants-subtext {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.participants-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 16px 0;
+}
+
+.participants-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.participants-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+}
+
+.participants-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.participants-role-btn {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.participants-role-btn.active {
+  background: rgba(74, 92, 58, 0.10);
+  border-color: rgba(74, 92, 58, 0.28);
+  color: var(--accent);
+}
+.participants-role-btn:hover { background: var(--bg-card-hover); }
+
+.participants-admin-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
 /* ── Message branch button ───────────────────────────────────────────────────── */
 .message-branch-btn {
   display: inline-flex;
@@ -3943,7 +4088,7 @@ input {
 }
 
 .visibility-opt.active {
-  background: rgba(79, 124, 255, 0.15);
+  background: rgba(74, 92, 58, 0.15);
   color: var(--accent);
 }
 
@@ -3956,7 +4101,7 @@ input {
   margin: 10px 0 0;
   padding: 8px 14px;
   background: rgba(79, 124, 255, 0.08);
-  border: 1px solid rgba(79, 124, 255, 0.2);
+  border: 1px solid rgba(74, 92, 58, 0.12);
   border-radius: var(--radius-sm);
   font-size: 12px;
   color: var(--accent);
@@ -4014,7 +4159,7 @@ input {
   border-radius: 10px;
   background: rgba(79, 124, 255, 0.1);
   color: var(--accent);
-  border: 1px solid rgba(79, 124, 255, 0.2);
+  border: 1px solid rgba(74, 92, 58, 0.12);
   white-space: nowrap;
 }
 
@@ -4743,7 +4888,7 @@ input {
 .msg-selected {
   background: rgba(79, 124, 255, 0.1) !important;
   border-radius: var(--radius-sm);
-  outline: 2px solid rgba(79, 124, 255, 0.35);
+  outline: 2px solid rgba(74, 92, 58, 0.25);
   outline-offset: 2px;
 }
 
@@ -5001,7 +5146,7 @@ input {
   position: fixed;
   inset: 0;
   overflow: hidden;
-  background: #090d18;
+  background: var(--bg-primary);
   z-index: 0;
 }
 
@@ -5029,7 +5174,7 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(9, 13, 24, 0.65);
+  background: rgba(0, 0, 0, 0.25);
   z-index: 20;
 }
 
@@ -5095,7 +5240,7 @@ input {
   padding: 16px 16px;
   padding-bottom: max(16px, env(safe-area-inset-bottom));
   /* Fade from transparent → dark so nodes beneath are still visible */
-  background: linear-gradient(transparent, rgba(9, 13, 24, 0.90) 35%);
+  background: linear-gradient(transparent, rgba(250, 248, 244, 0.92) 35%);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   z-index: 10;
@@ -5109,7 +5254,7 @@ input {
   padding: 8px 14px;
   min-width: 80px;
   min-height: 50px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.04);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-secondary);
@@ -5119,8 +5264,8 @@ input {
   flex-shrink: 0;
 }
 
-.graph-nav-btn:hover  { background: rgba(255, 255, 255, 0.10); }
-.graph-nav-btn:active { background: rgba(255, 255, 255, 0.14); }
+.graph-nav-btn:hover  { background: rgba(0, 0, 0, 0.07); }
+.graph-nav-btn:active { background: rgba(0, 0, 0, 0.10); }
 
 .graph-nav-icon {
   font-size: 18px;
@@ -5174,7 +5319,7 @@ input {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.06);
   color: var(--text-muted);
   font-size: 17px;
   display: flex;
@@ -5184,7 +5329,7 @@ input {
   flex-shrink: 0;
 }
 
-.graph-preview-dismiss:hover { background: rgba(255, 255, 255, 0.14); }
+.graph-preview-dismiss:hover { background: rgba(0, 0, 0, 0.10); }
 
 .graph-preview-avatars {
   position: relative;
@@ -5277,7 +5422,7 @@ input {
 .graph-inbox-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.35);
   animation: graphBackdropIn 0.25s ease;
 }
 
@@ -5295,7 +5440,6 @@ input {
   flex-direction: column;
   overflow: hidden;
   animation: graphSheetUp 0.3s cubic-bezier(0.32, 0.72, 0, 1);
-  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.5);
 }
 
 @keyframes graphSheetUp {
@@ -5334,21 +5478,21 @@ input {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   WEAVER ENTRY SCREEN
-   Three-layer entry: procedural net + Weaver chat + persistent nav.
+   KEPOS ENTRY SCREEN
+   Three-layer entry: Canvas 2D rhizome + Gardener chat + persistent nav.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .weaver-entry {
   position: fixed;
   inset: 0;
-  background: #060b16;
+  background: var(--bg-primary);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   z-index: 0;
 }
 
-/* ── Three.js canvas ── */
+/* ── Canvas 2D rhizome ── */
 
 .weaver-canvas {
   position: absolute;
@@ -5369,13 +5513,14 @@ input {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: lowercase;
-  color: rgba(120, 150, 220, 0.5);
+  color: var(--accent);
+  opacity: 0.7;
   pointer-events: none;
   z-index: 10;
   user-select: none;
 }
 
-/* ── Crystallising overlay ── */
+/* ── Creating overlay ── */
 
 .weaver-creating {
   position: absolute;
@@ -5394,9 +5539,9 @@ input {
   width: 52px;
   height: 52px;
   border-radius: 50%;
-  border: 2px solid;
+  border: 2px solid var(--accent);
   animation: weaverRingSpin 1.2s linear infinite, weaverRingPulse 1.2s ease-in-out infinite;
-  opacity: 0.85;
+  opacity: 0.8;
 }
 
 @keyframes weaverRingSpin  { to { transform: rotate(360deg) } }
@@ -5405,7 +5550,7 @@ input {
 .weaver-creating-text {
   font-size: 13px;
   font-weight: 500;
-  color: rgba(180, 200, 255, 0.7);
+  color: var(--text-muted);
   letter-spacing: 0.05em;
 }
 
@@ -5430,7 +5575,7 @@ input {
 .weaver-hint {
   text-align: center;
   font-size: 13px;
-  color: rgba(136, 153, 187, 0.7);
+  color: var(--text-muted);
   line-height: 1.5;
   max-width: 300px;
   margin: 0 auto 8px;
@@ -5464,18 +5609,19 @@ input {
 
 .weaver-msg-user {
   align-self: flex-end;
-  background: rgba(79, 124, 255, 0.22);
-  border: 1px solid rgba(79, 124, 255, 0.3);
+  background: rgba(74, 92, 58, 0.12);
+  border: 1px solid rgba(74, 92, 58, 0.22);
   color: var(--text-primary);
   border-bottom-right-radius: 4px;
 }
 
 .weaver-msg-assistant {
   align-self: flex-start;
-  background: rgba(14, 21, 37, 0.75);
-  border: 1px solid rgba(36, 48, 80, 0.8);
+  background: rgba(250, 248, 244, 0.88);
+  border: 1px solid var(--border-light);
   color: var(--text-primary);
   border-bottom-left-radius: 4px;
+  box-shadow: var(--shadow-sm);
 }
 
 /* Typing indicator */
@@ -5503,8 +5649,8 @@ input {
   align-self: center;
   font-size: 12px;
   color: var(--error);
-  background: rgba(255, 71, 87, 0.1);
-  border: 1px solid rgba(255, 71, 87, 0.2);
+  background: rgba(140, 60, 44, 0.08);
+  border: 1px solid rgba(140, 60, 44, 0.18);
   border-radius: var(--radius-md);
   padding: 6px 12px;
   margin-top: 4px;
@@ -5523,7 +5669,7 @@ input {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  background: rgba(9, 13, 24, 0.82);
+  background: rgba(250, 248, 244, 0.92);
   border: 1px solid var(--border-light);
   border-radius: 18px;
   padding: 8px 8px 8px 14px;
@@ -5592,7 +5738,7 @@ input {
   gap: 8px;
   padding: 12px 16px;
   padding-bottom: max(16px, env(safe-area-inset-bottom));
-  background: linear-gradient(transparent, rgba(6, 11, 22, 0.95) 40%);
+  background: linear-gradient(transparent, rgba(250, 248, 244, 0.95) 40%);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
@@ -5605,7 +5751,7 @@ input {
   padding: 8px 20px;
   min-width: 90px;
   min-height: 50px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.04);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-secondary);
@@ -5613,24 +5759,24 @@ input {
   font-weight: 600;
   letter-spacing: 0.03em;
 }
-.weaver-nav-btn:hover  { background: rgba(255,255,255,0.10); }
-.weaver-nav-btn:active { background: rgba(255,255,255,0.14); }
+.weaver-nav-btn:hover  { background: rgba(0, 0, 0, 0.07); }
+.weaver-nav-btn:active { background: rgba(0, 0, 0, 0.11); }
 
 /* Returning user: My Chats is more prominent */
 .weaver-nav-prominent {
-  background: rgba(79, 124, 255, 0.14);
-  border-color: rgba(79, 124, 255, 0.35);
+  background: rgba(74, 92, 58, 0.10);
+  border-color: rgba(74, 92, 58, 0.28);
   color: var(--accent);
 }
-.weaver-nav-prominent:hover { background: rgba(79, 124, 255, 0.22); }
+.weaver-nav-prominent:hover { background: rgba(74, 92, 58, 0.16); }
 
 /* Create Room centre button */
 .weaver-nav-create {
-  background: rgba(255, 255, 255, 0.09);
-  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.05);
+  border-color: var(--border);
 }
-.weaver-nav-create:hover  { background: rgba(255, 255, 255, 0.14); }
-.weaver-nav-create:active { background: rgba(255, 255, 255, 0.18); }
+.weaver-nav-create:hover  { background: rgba(0, 0, 0, 0.08); }
+.weaver-nav-create:active { background: rgba(0, 0, 0, 0.12); }
 
 .weaver-nav-icon {
   font-size: 18px;

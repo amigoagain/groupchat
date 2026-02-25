@@ -220,6 +220,13 @@ export default function App() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="app">
+      {/* Persistent Kepos mark — tap to return to entry screen */}
+      {screen !== 'weaver' && screen !== 'loading' && !needsUsername && (
+        <button className="kepos-mark" onClick={handleBackToStart} title="Return to Kepos">
+          kepos
+        </button>
+      )}
+
       {/* Username modal — shown as an overlay before anything else on first visit */}
       {needsUsername && (
         <UsernameModal onSave={handleUsernameSave} isRename={false} />

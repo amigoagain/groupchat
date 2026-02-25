@@ -1,119 +1,42 @@
 /**
- * WeaverEntryScreen.jsx
+ * WeaverEntryScreen.jsx  — now the Kepos entry screen
  * ─────────────────────────────────────────────────────────────
  * Three-layer entry screen:
  *
- *   Layer 1 — Procedural Three.js net
- *     Atmospheric gossamer web. ~120 nodes, ~250 edges.
- *     Five invisible gravitational anchors (Philosophy, Science,
- *     History, Culture, Psychology) give the net spatial structure.
- *     Slow undulating breathing animation per node.
- *     Touch ripple: disturbance propagates from point of contact.
- *     User's existing rooms appear as warmer nodes in approximate
- *     domain positions.
+ *   Layer 1 — Canvas 2D rhizome visualization
+ *     Irregular branching root structure radiating from centre.
+ *     Olive green / warm brown tones on white/off-white bg.
+ *     Continuous organic growth: tips extend, breathe, fade.
+ *     Motion is always present but never distracting.
  *
- *   Layer 2 — Weaver conversation interface
+ *   Layer 2 — Gardener conversation interface
  *     Minimal input bar. Short chat thread above it.
- *     Weaver system prompt drives room creation in ≤3 exchanges.
- *     Detects ROOM_CREATE:{...} signal, creates the room via
- *     existing createRoom logic, triggers node crystallisation.
+ *     Gardener system prompt drives room creation in ≤3 exchanges.
+ *     Detects ROOM_CREATE:{...} signal, creates the room.
  *
  *   Layer 3 — Persistent navigation
- *     My Chats (bottom-left) and Browse All (bottom-right).
- *     Always visible. Opens InboxScreen as slide-up panel.
- *
- * V2 note: The live-data graph (real rooms as real nodes with
- * real edges) is the natural evolution of this screen. The
- * procedural net is its foundation.
+ *     My Chats · Create Room · Browse All
  * ─────────────────────────────────────────────────────────────
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import * as THREE from 'three'
 import { callDirectAPI } from '../services/claudeApi.js'
 import { loadAllCharacters } from '../utils/customCharacters.js'
 import { createRoom } from '../utils/roomUtils.js'
-import { getVisitedRoomCodes, generateRoomName } from '../utils/inboxUtils.js'
+import { getVisitedRoomCodes } from '../utils/inboxUtils.js'
 import { inferDomain, DOMAIN_COLORS } from '../utils/domainUtils.js'
 import { modes } from '../data/modes.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import InboxScreen from './InboxScreen.jsx'
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// ── Gardener system prompt ─────────────────────────────────────────────────────
 
-const NODE_COUNT   = 120
-const MAX_EDGES_PP = 3      // max edges per node
-const EDGE_DIST    = 7.5    // max world-space distance to form an edge
-const BREATHE_AMP  = 0.35   // base undulation amplitude
-const BREATHE_FREQ = 0.22   // base undulation frequency
-
-// Five anchor regions (world-space x/y, z kept shallow)
-const ANCHORS = [
-  { domain: 'Philosophy', x: -13, y:  9 },
-  { domain: 'Science',    x:  13, y:  9 },
-  { domain: 'History',    x: -13, y: -9 },
-  { domain: 'Culture',    x:  13, y: -9 },
-  { domain: 'Psychology', x:   0, y:  0 },
-]
-
-// Domain → nearest anchor (for topic stirring + user-room positioning)
-const DOMAIN_TO_ANCHOR = {
-  Philosophy: 'Philosophy',
-  Science:    'Science',
-  Tech:       'Science',
-  History:    'History',
-  Politics:   'History',
-  Arts:       'Culture',
-  Culture:    'Culture',
-  Psychology: 'Psychology',
-  Health:     'Psychology',
-  Business:   'Culture',
-  Law:        'History',
-  Other:      'Psychology',
-}
-
-// Simple keyword → domain mapping for live text stirring
-const TOPIC_KEYWORDS = {
-  Philosophy: [
-    'philosophy','conscious','exist','meaning','truth','moral','ethic','logic',
-    'metaphysic','ontolog','epistem','virtue','soul','mind','free will',
-    'sartre','nietzsche','plato','aristotle','kant','hegel','descartes',
-    'camus','heidegger','beauvoir','stoic','socrates','epicurus','spinoza',
-    'wittgenstein','rousseau','voltaire','locke','hume','russell','mill',
-  ],
-  Science: [
-    'science','physics','biology','chemistry','quantum','relativity','atom',
-    'evolution','genetics','astronomy','cosmology','experiment','hypothesis',
-    'darwin','einstein','feynman','sagan','curie','newton','hawking',
-    'turing','tesla','bohr','galileo','climate','ecology','medicine',
-  ],
-  History: [
-    'history','war','empire','revolution','ancient','medieval','renaissance',
-    'napoleon','caesar','lincoln','churchill','cleopatra','alexander',
-    'colonial','feudal','dynasty','republic','conquest','civilization',
-    'wwi','wwii','cold war','ottoman','roman','greek','medieval',
-  ],
-  Culture: [
-    'art','music','literature','film','culture','society','creative',
-    'shakespeare','mozart','beethoven','kafka','woolf','twain','kahlo',
-    'jazz','classical','poetry','novel','theatre','cinema','design',
-    'architecture','fashion','food','sports','media','celebrity',
-  ],
-  Psychology: [
-    'psychology','mind','behav','cognitive','emotion','therapy','anxiety',
-    'depression','trauma','memory','perception','personality','motivation',
-    'freud','jung','maslow','skinner','james','erikson','piaget','pavlov',
-    'unconscious','dream','archetype','habit','identity','attachment',
-  ],
-}
-
-// Weaver system prompt
-const WEAVER_SYSTEM_PROMPT = `You are the Weaver, the guide of GroupChat — a platform where users have conversations with multiple AI characters simultaneously. Your job is to help users shape a room collaboratively, in 2–3 warm exchanges.
+const GARDENER_SYSTEM_PROMPT = `You are the Gardener, the guide of Kepos — a platform where users have conversations with multiple AI characters simultaneously. Your job is to help users shape a room collaboratively, in 2–3 warm exchanges.
 
 You are curious and brief. You sound like a knowledgeable friend, not a form. You never decide for the user — you open doors.
 
 When a user describes what they want:
-1. Identify 2–4 characters from the GroupChat library (historical figures, philosophers, scientists, expert personas) that could fit their interest.
+1. Identify 2–4 characters from the Kepos library (historical figures, philosophers, scientists, expert personas) that could fit their interest.
 2. Frame your suggestion as a question or an opening, not a decision. Example: "Darwin and Marx could be a fascinating pairing here — want to go with them, or is there someone else you'd like to bring in?"
 3. Infer the appropriate mode: Chat for casual/exploratory, Discuss for analytical/debate, Plan for goal-oriented, Advise for professional guidance. Mention it lightly but let the user confirm.
 4. Always end your reply with an open question — even if you're fairly sure about the direction. Give the user space to steer.
@@ -128,67 +51,218 @@ Rules:
 - Keep responses under 60 words (excluding ROOM_CREATE).
 - When emitting ROOM_CREATE, output ONLY that line — nothing before or after.`
 
-// ── Three.js net builder ───────────────────────────────────────────────────────
+// ── Canvas 2D Rhizome ──────────────────────────────────────────────────────────
 
-function buildNet(w, h) {
-  // Normalise anchor positions to world coords based on camera FOV ~50°, z=28
-  const aspect = w / h
-  const scaleX = 18 * aspect
-  const scaleY = 18
+const OLIVE  = [74,  88,  48]
+const BROWN  = [100, 78,  44]
+const D_OLIVE = [55, 68,  36]
 
-  const nodes = []
-  for (let i = 0; i < NODE_COUNT; i++) {
-    const anchor = ANCHORS[Math.floor(Math.random() * ANCHORS.length)]
-    const spread = 0.55
-    const x = anchor.x * (scaleX / 18) + (Math.random() - 0.5) * scaleX * spread
-    const y = anchor.y * (scaleY / 18) + (Math.random() - 0.5) * scaleY * spread
-    const z = (Math.random() - 0.5) * 6
-    nodes.push({
-      bx: x, by: y, bz: z,     // base positions
-      cx: x, cy: y, cz: z,     // current positions (updated in loop)
-      phase:  Math.random() * Math.PI * 2,
-      phase2: Math.random() * Math.PI * 2,
-      domain: anchor.domain,
-      isUserRoom: false,
+function rgba(rgb, a) { return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a.toFixed(3)})` }
+
+function buildRhizome(w, h) {
+  const cx = w / 2
+  const cy = h * 0.44
+  const segments  = []
+  const junctions = []
+
+  function grow(x, y, angle, depth, maxDepth) {
+    if (depth > maxDepth) return
+    if (x < -w * 0.12 || x > w * 1.12 || y < -h * 0.12 || y > h * 1.12) return
+
+    const baseLen  = Math.max(6, 30 - depth * 3.2)
+    const numSteps = Math.floor(baseLen * (0.65 + Math.random() * 0.7))
+    const step     = Math.max(1.8, 3.8 - depth * 0.25)
+
+    let px = x, py = y, cur = angle
+
+    for (let s = 0; s < numSteps; s++) {
+      cur += (Math.random() - 0.5) * 0.20
+      if (depth <= 2) cur += 0.014 * Math.sin(cur * 1.3) // gentle gravity sway
+
+      const nx = px + Math.cos(cur) * step
+      const ny = py + Math.sin(cur) * step
+
+      const depthRatio = depth / maxDepth
+      const a  = (0.15 + (1 - depthRatio) * 0.42) * (0.65 + Math.random() * 0.35)
+      const lw = Math.max(0.28, (1.9 - depth * 0.22) * (0.75 + Math.random() * 0.25))
+      const col = depth % 2 === 0 ? OLIVE : BROWN
+
+      segments.push({ x1: px, y1: py, x2: nx, y2: ny, a, lw, col })
+
+      px = nx; py = ny
+      if (px < -60 || px > w + 60 || py < -60 || py > h + 60) break
+    }
+
+    // Junction node
+    const ja  = 0.22 + (1 - depth / maxDepth) * 0.28
+    const jSz = Math.max(0.7, 2.2 - depth * 0.25)
+    junctions.push({ x: px, y: py, r: jSz, a: ja })
+
+    // Branching
+    const nBranch = depth === 0 ? 2 + Math.floor(Math.random() * 3)
+                  : depth < 3   ? 1 + (Math.random() < 0.60 ? 1 : 0)
+                  : depth < 5   ? (Math.random() < 0.72 ? 1 : 0)
+                  :               (Math.random() < 0.38 ? 1 : 0)
+
+    for (let b = 0; b < nBranch; b++) {
+      const spread = 0.38 + depth * 0.09
+      const ba = cur + (spread + Math.random() * 0.65) * (Math.random() < 0.5 ? 1 : -1)
+      grow(px, py, ba, depth + 1, maxDepth)
+    }
+  }
+
+  const numRoots = 6 + Math.floor(Math.random() * 3)
+  for (let i = 0; i < numRoots; i++) {
+    const base  = (Math.PI * 2 * i / numRoots)
+    const angle = base + (Math.random() - 0.5) * 1.0
+    const ox = cx + (Math.random() - 0.5) * 50
+    const oy = cy + (Math.random() - 0.5) * 36
+    grow(ox, oy, angle, 0, 7)
+  }
+
+  return { segments, junctions }
+}
+
+function initRhizome(canvas) {
+  const ctx = canvas.getContext('2d')
+  let w = canvas.width  = window.innerWidth
+  let h = canvas.height = window.innerHeight
+
+  let data = buildRhizome(w, h)
+  let tips = []
+  let t    = 0
+  let lastSpawn = 0
+  let raf  = null
+  let lastTs = 0
+
+  // Pre-render static structure to offscreen canvas
+  let offscreen = document.createElement('canvas')
+  offscreen.width  = w
+  offscreen.height = h
+  let offCtx = offscreen.getContext('2d')
+
+  function renderOffscreen() {
+    offCtx.clearRect(0, 0, w, h)
+    for (const seg of data.segments) {
+      offCtx.beginPath()
+      offCtx.moveTo(seg.x1, seg.y1)
+      offCtx.lineTo(seg.x2, seg.y2)
+      offCtx.strokeStyle = rgba(seg.col, seg.a)
+      offCtx.lineWidth   = seg.lw
+      offCtx.lineCap     = 'round'
+      offCtx.stroke()
+    }
+    for (const j of data.junctions) {
+      offCtx.beginPath()
+      offCtx.arc(j.x, j.y, j.r, 0, Math.PI * 2)
+      offCtx.fillStyle = rgba(OLIVE, j.a * 0.75)
+      offCtx.fill()
+    }
+  }
+
+  renderOffscreen()
+
+  function spawnTip() {
+    if (data.segments.length < 20) return
+    const startIdx = Math.floor(data.segments.length * 0.55)
+    const seg = data.segments[startIdx + Math.floor(Math.random() * (data.segments.length - startIdx))]
+    if (!seg) return
+    const angle = Math.atan2(seg.y2 - seg.y1, seg.x2 - seg.x1) + (Math.random() - 0.5) * 0.9
+    tips.push({
+      x: seg.x2, y: seg.y2,
+      angle,
+      depth:   (seg.depth || 3) + 1,
+      age:     0,
+      maxAge:  50 + Math.random() * 90,
+      speed:   0.55 + Math.random() * 0.55,
+      segs:    [],
     })
   }
 
-  // Build edges: k-nearest within EDGE_DIST, cap at MAX_EDGES_PP
-  const edgeCount = new Array(NODE_COUNT).fill(0)
-  const edges = []
-  for (let i = 0; i < NODE_COUNT; i++) {
-    if (edgeCount[i] >= MAX_EDGES_PP) continue
-    const ni = nodes[i]
-    // candidates sorted by distance
-    const nearby = []
-    for (let j = i + 1; j < NODE_COUNT; j++) {
-      const nj = nodes[j]
-      const dx = ni.bx - nj.bx, dy = ni.by - nj.by, dz = ni.bz - nj.bz
-      const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
-      if (d < EDGE_DIST) nearby.push({ j, d })
+  function update(dt) {
+    t += dt
+
+    if (t - lastSpawn > 1.8 + Math.random() * 2.5) {
+      lastSpawn = t
+      if (tips.length < 7) spawnTip()
     }
-    nearby.sort((a, b) => a.d - b.d)
-    for (const { j } of nearby) {
-      if (edgeCount[i] >= MAX_EDGES_PP) break
-      if (edgeCount[j] >= MAX_EDGES_PP) continue
-      edges.push([i, j])
-      edgeCount[i]++
-      edgeCount[j]++
+
+    for (let i = tips.length - 1; i >= 0; i--) {
+      const tip = tips[i]
+      tip.age += dt * 28
+
+      if (tip.age > tip.maxAge) { tips.splice(i, 1); continue }
+
+      const progress = tip.age / tip.maxAge
+      if (progress < 0.65) {
+        tip.angle += (Math.random() - 0.5) * 0.14
+        const nx = tip.x + Math.cos(tip.angle) * tip.speed
+        const ny = tip.y + Math.sin(tip.angle) * tip.speed
+        const a  = (1 - progress / 0.65) * 0.28
+        const lw = Math.max(0.25, 1.1 - (tip.depth || 4) * 0.10)
+        tip.segs.push({ x1: tip.x, y1: tip.y, x2: nx, y2: ny, a, lw })
+        tip.x = nx; tip.y = ny
+        if (nx < 0 || nx > w || ny < 0 || ny > h) { tips.splice(i, 1) }
+      }
     }
   }
 
-  return { nodes, edges }
-}
+  function draw() {
+    ctx.clearRect(0, 0, w, h)
+    ctx.drawImage(offscreen, 0, 0)
 
-// ── Detect active domains from typed text ─────────────────────────────────────
+    // Subtle breathing pulse on junction subset
+    const pulse = 0.012 * Math.sin(t * 0.75)
+    for (let i = 0; i < data.junctions.length; i += 6) {
+      const j = data.junctions[i]
+      const phase = (i / data.junctions.length) * Math.PI * 2
+      const pa = Math.max(0, j.a * 0.5 + pulse * Math.sin(phase + t * 0.5))
+      ctx.beginPath()
+      ctx.arc(j.x, j.y, j.r * 1.8, 0, Math.PI * 2)
+      ctx.fillStyle = rgba(D_OLIVE, pa)
+      ctx.fill()
+    }
 
-function detectDomains(text) {
-  const lower = text.toLowerCase()
-  const active = new Set()
-  for (const [domain, keywords] of Object.entries(TOPIC_KEYWORDS)) {
-    if (keywords.some(kw => lower.includes(kw))) active.add(domain)
+    // Draw living tips
+    for (const tip of tips) {
+      for (const seg of tip.segs) {
+        ctx.beginPath()
+        ctx.moveTo(seg.x1, seg.y1)
+        ctx.lineTo(seg.x2, seg.y2)
+        ctx.strokeStyle = rgba(D_OLIVE, seg.a)
+        ctx.lineWidth   = seg.lw
+        ctx.lineCap     = 'round'
+        ctx.stroke()
+      }
+    }
   }
-  return active
+
+  function tick(ts) {
+    const dt = lastTs ? Math.min((ts - lastTs) / 1000, 0.05) : 0.016
+    lastTs = ts
+    update(dt)
+    draw()
+    raf = requestAnimationFrame(tick)
+  }
+
+  raf = requestAnimationFrame(tick)
+
+  function resize() {
+    w = canvas.width  = window.innerWidth
+    h = canvas.height = window.innerHeight
+    offscreen.width  = w
+    offscreen.height = h
+    offCtx = offscreen.getContext('2d')
+    data = buildRhizome(w, h)
+    tips = []
+    renderOffscreen()
+  }
+  window.addEventListener('resize', resize)
+
+  return () => {
+    cancelAnimationFrame(raf)
+    window.removeEventListener('resize', resize)
+  }
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -196,422 +270,108 @@ function detectDomains(text) {
 export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn, onStartRoom }) {
   const { isAuthenticated, userId, username, authLoading } = useAuth()
 
-  // ── Weaver chat state ────────────────────────────────────────────────────────
-  const [messages,      setMessages]      = useState([])
-  const [inputText,     setInputText]     = useState('')
-  const [weaverLoading, setWeaverLoading] = useState(false)
-  const [activeDomains, setActiveDomains] = useState(new Set())
-  const [crystallising, setCrystallising] = useState(null) // { domain, color }
-  const [weaverError,   setWeaverError]   = useState('')
+  const [messages,       setMessages]       = useState([])
+  const [inputText,      setInputText]      = useState('')
+  const [gardenerLoading, setGardenerLoading] = useState(false)
+  const [gardenerError,  setGardenerError]  = useState('')
+  const [isCreating,     setIsCreating]     = useState(false)
 
-  // ── Inbox panel state ────────────────────────────────────────────────────────
   const [showInbox, setShowInbox] = useState(false)
   const [inboxTab,  setInboxTab]  = useState('my')
 
-  // ── Refs ─────────────────────────────────────────────────────────────────────
-  const canvasRef       = useRef(null)
-  const threeRef        = useRef(null)   // { scene, camera, renderer, nodes, edges, … }
-  const animFrameRef    = useRef(null)
-  const rippleRef       = useRef([])     // [{ x, y, z, t }]
-  const inputRef        = useRef(null)
-  const chatEndRef      = useRef(null)
-  const abortRef        = useRef(null)
-  const allCharsRef     = useRef([])
-  const activeDomRef    = useRef(new Set())
-  const crystalNodeRef  = useRef(null)   // THREE.Mesh for crystallisation
+  const canvasRef   = useRef(null)
+  const inputRef    = useRef(null)
+  const chatEndRef  = useRef(null)
+  const abortRef    = useRef(null)
+  const allCharsRef = useRef([])
 
-  // ── Load characters once ──────────────────────────────────────────────────
+  // Load characters
   useEffect(() => {
     loadAllCharacters().then(chars => { allCharsRef.current = chars }).catch(() => {})
   }, [])
 
-  // ── Scroll chat to bottom on new message ─────────────────────────────────
+  // Scroll chat to bottom
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // ── Keep activeDomRef in sync ─────────────────────────────────────────────
-  useEffect(() => { activeDomRef.current = activeDomains }, [activeDomains])
-
-  // ── Three.js setup ───────────────────────────────────────────────────────────
+  // Canvas 2D rhizome
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-
-    const w = window.innerWidth
-    const h = window.innerHeight
-
-    // Scene + camera
-    const scene    = new THREE.Scene()
-    const camera   = new THREE.PerspectiveCamera(50, w / h, 0.1, 200)
-    camera.position.z = 28
-
-    // Renderer
-    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false })
-    renderer.setSize(w, h)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    renderer.setClearColor(0x000000, 0)
-
-    // Build net data
-    const { nodes, edges } = buildNet(w, h)
-
-    // ── Node Points ──────────────────────────────────────────────────────────
-    const nodePosArr = new Float32Array(NODE_COUNT * 3)
-    const nodeColArr = new Float32Array(NODE_COUNT * 3)
-    for (let i = 0; i < NODE_COUNT; i++) {
-      const n = nodes[i]
-      nodePosArr[i * 3]     = n.bx
-      nodePosArr[i * 3 + 1] = n.by
-      nodePosArr[i * 3 + 2] = n.bz
-      // Cool blue-white base colour
-      nodeColArr[i * 3]     = 0.35
-      nodeColArr[i * 3 + 1] = 0.45
-      nodeColArr[i * 3 + 2] = 0.75
-    }
-
-    const nodeGeo = new THREE.BufferGeometry()
-    nodeGeo.setAttribute('position', new THREE.BufferAttribute(nodePosArr, 3))
-    nodeGeo.setAttribute('color',    new THREE.BufferAttribute(nodeColArr, 3))
-    const nodeMat = new THREE.PointsMaterial({
-      size:            3.2,
-      vertexColors:    true,
-      sizeAttenuation: false,
-      transparent:     true,
-      opacity:         0.65,
-    })
-    const nodesMesh = new THREE.Points(nodeGeo, nodeMat)
-    scene.add(nodesMesh)
-
-    // ── Edge LineSegments ─────────────────────────────────────────────────────
-    const edgePosArr = new Float32Array(edges.length * 2 * 3)
-    const edgeGeo    = new THREE.BufferGeometry()
-    edgeGeo.setAttribute('position', new THREE.BufferAttribute(edgePosArr, 3))
-    const edgeMat = new THREE.LineBasicMaterial({
-      color:       0x1e3050,
-      transparent: true,
-      opacity:     0.45,
-    })
-    const edgesMesh = new THREE.LineSegments(edgeGeo, edgeMat)
-    scene.add(edgesMesh)
-
-    // Store on ref
-    threeRef.current = {
-      scene, camera, renderer,
-      nodes, edges,
-      nodeGeo, nodeColArr, nodePosArr,
-      edgeGeo, edgePosArr,
-    }
-
-    // ── User rooms overlay ────────────────────────────────────────────────────
-    _addUserRoomNodes(threeRef.current, w, h, allCharsRef.current)
-
-    // ── Animation loop ────────────────────────────────────────────────────────
-    const clock = new THREE.Clock()
-
-    function animate() {
-      animFrameRef.current = requestAnimationFrame(animate)
-      const t = clock.getElapsedTime()
-      const r = threeRef.current
-      if (!r) return
-
-      const pos  = r.nodeGeo.attributes.position.array
-      const col  = r.nodeGeo.attributes.color.array
-      const now  = performance.now() / 1000
-
-      for (let i = 0; i < NODE_COUNT; i++) {
-        const n  = r.nodes[i]
-        const ad = activeDomRef.current
-
-        // Stirring boost: active domains breathe wider
-        const dominated = ad.size > 0 && ad.has(n.domain)
-        const amp  = dominated ? BREATHE_AMP * 3.5 : BREATHE_AMP
-        const freq = dominated ? BREATHE_FREQ * 1.6 : BREATHE_FREQ
-
-        // Base undulation
-        let x = n.bx + Math.sin(t * freq       + n.phase)  * amp
-        let y = n.by + Math.cos(t * freq * 0.9 + n.phase)  * amp
-        let z = n.bz + Math.sin(t * freq * 0.7 + n.phase2) * amp * 0.8
-
-        // Ripple displacements
-        for (const rip of rippleRef.current) {
-          const age = now - rip.t
-          if (age > 3) continue
-          const dx = x - rip.x, dy = y - rip.y
-          const d2 = dx * dx + dy * dy
-          const wave = Math.exp(-age * 1.8) * Math.sin(age * 6 - Math.sqrt(d2) * 0.7)
-          x += (dx / (Math.sqrt(d2) + 0.01)) * wave * 1.2
-          y += (dy / (Math.sqrt(d2) + 0.01)) * wave * 1.2
-        }
-
-        pos[i * 3]     = x
-        pos[i * 3 + 1] = y
-        pos[i * 3 + 2] = z
-        n.cx = x; n.cy = y; n.cz = z
-
-        // Colour: warm tint for active domains
-        if (dominated) {
-          col[i * 3]     = 0.55 + Math.sin(t * 2 + n.phase) * 0.08
-          col[i * 3 + 1] = 0.42
-          col[i * 3 + 2] = 0.85
-        } else {
-          col[i * 3]     = 0.35
-          col[i * 3 + 1] = 0.45
-          col[i * 3 + 2] = 0.75
-        }
-      }
-      r.nodeGeo.attributes.position.needsUpdate = true
-      r.nodeGeo.attributes.color.needsUpdate    = true
-
-      // Update edges
-      const ep = r.edgeGeo.attributes.position.array
-      for (let e = 0; e < r.edges.length; e++) {
-        const [a, b] = r.edges[e]
-        ep[e * 6]     = pos[a * 3];     ep[e * 6 + 1] = pos[a * 3 + 1]; ep[e * 6 + 2] = pos[a * 3 + 2]
-        ep[e * 6 + 3] = pos[b * 3];     ep[e * 6 + 4] = pos[b * 3 + 1]; ep[e * 6 + 5] = pos[b * 3 + 2]
-      }
-      r.edgeGeo.attributes.position.needsUpdate = true
-
-      // Crystallisation animation
-      if (crystalNodeRef.current) {
-        const cn = crystalNodeRef.current
-        cn.userData.age = (cn.userData.age || 0) + 0.016
-        const age = cn.userData.age
-        const scale = Math.min(age * 2.5, 1) * (1 + Math.sin(age * 8) * 0.08)
-        cn.scale.setScalar(scale)
-        cn.material.opacity = Math.min(age * 2, 1)
-        cn.rotation.z = age * 0.8
-      }
-
-      // Clean old ripples
-      const cutoff = now - 3.5
-      rippleRef.current = rippleRef.current.filter(rp => rp.t > cutoff)
-
-      r.renderer.render(r.scene, r.camera)
-    }
-
-    animate()
-
-    // ── Resize handler ────────────────────────────────────────────────────────
-    function onResize() {
-      const nw = window.innerWidth, nh = window.innerHeight
-      if (!threeRef.current) return
-      threeRef.current.camera.aspect = nw / nh
-      threeRef.current.camera.updateProjectionMatrix()
-      threeRef.current.renderer.setSize(nw, nh)
-    }
-    window.addEventListener('resize', onResize)
-
-    return () => {
-      cancelAnimationFrame(animFrameRef.current)
-      window.removeEventListener('resize', onResize)
-      renderer.dispose()
-      nodeGeo.dispose(); nodeMat.dispose()
-      edgeGeo.dispose(); edgeMat.dispose()
-      threeRef.current = null
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Add user room nodes to scene ──────────────────────────────────────────
-  function _addUserRoomNodes(r, w, h) {
-    const visitedCodes = getVisitedRoomCodes()
-    if (visitedCodes.length === 0) return
-
-    const aspect = w / h
-    const scaleX = 18 * aspect
-    const scaleY = 18
-
-    const warmPositions = []
-    const warmColors    = []
-
-    for (const code of visitedCodes.slice(0, 20)) {
-      try {
-        const raw = localStorage.getItem('groupchat_room_' + code)
-        if (!raw) continue
-        const room = JSON.parse(raw)
-        const chars = room.characters || []
-        if (chars.length === 0) continue
-
-        // Determine dominant domain from first character
-        const dom = inferDomain(chars[0])
-        const anchorName = DOMAIN_TO_ANCHOR[dom] || 'Psychology'
-        const anchor = ANCHORS.find(a => a.domain === anchorName) || ANCHORS[4]
-
-        const x = anchor.x * (scaleX / 18) + (Math.random() - 0.5) * 5
-        const y = anchor.y * (scaleY / 18) + (Math.random() - 0.5) * 5
-        const z = (Math.random() - 0.5) * 3
-
-        warmPositions.push(x, y, z)
-        // Warm amber-ish tint
-        warmColors.push(0.85, 0.55, 0.25)
-      } catch {}
-    }
-
-    if (warmPositions.length === 0) return
-
-    const wGeo = new THREE.BufferGeometry()
-    wGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(warmPositions), 3))
-    wGeo.setAttribute('color',    new THREE.BufferAttribute(new Float32Array(warmColors), 3))
-    const wMat = new THREE.PointsMaterial({
-      size:            5,
-      vertexColors:    true,
-      sizeAttenuation: false,
-      transparent:     true,
-      opacity:         0.8,
-    })
-    r.scene.add(new THREE.Points(wGeo, wMat))
-  }
-
-  // ── Touch / click ripple ──────────────────────────────────────────────────
-  const handleCanvasTouch = useCallback((e) => {
-    const r = threeRef.current
-    if (!r) return
-    const touch = e.touches ? e.touches[0] : e
-    const rect  = canvasRef.current.getBoundingClientRect()
-    const nx    = ((touch.clientX - rect.left) / rect.width)  * 2 - 1
-    const ny    = -((touch.clientY - rect.top)  / rect.height) * 2 + 1
-
-    // Unproject to world plane z=0
-    const vec = new THREE.Vector3(nx, ny, 0.5).unproject(r.camera)
-    const dir = vec.sub(r.camera.position).normalize()
-    const dist = -r.camera.position.z / dir.z
-    const pos = r.camera.position.clone().addScaledVector(dir, dist)
-
-    rippleRef.current.push({ x: pos.x, y: pos.y, z: 0, t: performance.now() / 1000 })
+    const cleanup = initRhizome(canvas)
+    return cleanup
   }, [])
 
-  // ── Input text change → detect domains ───────────────────────────────────
-  const handleInputChange = (e) => {
-    const val = e.target.value
-    setInputText(val)
-    setActiveDomains(val.trim() ? detectDomains(val) : new Set())
-  }
-
-  // ── Crystallisation effect ────────────────────────────────────────────────
-  function triggerCrystallisation(domain, color) {
-    const r = threeRef.current
-    if (!r) return
-
-    const anchorName = DOMAIN_TO_ANCHOR[domain] || 'Psychology'
-    const anchor = ANCHORS.find(a => a.domain === anchorName) || ANCHORS[4]
-    const w = window.innerWidth, h = window.innerHeight
-    const aspect = w / h
-    const x = anchor.x * (18 * aspect / 18)
-    const y = anchor.y
-
-    // Remove previous if any
-    if (crystalNodeRef.current) r.scene.remove(crystalNodeRef.current)
-
-    const hexColor = color ? parseInt(color.replace('#', ''), 16) : 0xffaa44
-    const geo = new THREE.RingGeometry(0.3, 0.7, 6)
-    const mat = new THREE.MeshBasicMaterial({
-      color: hexColor, transparent: true, opacity: 0, side: THREE.DoubleSide,
-    })
-    const mesh = new THREE.Mesh(geo, mat)
-    mesh.position.set(x, y, 1)
-    mesh.userData.age = 0
-    r.scene.add(mesh)
-    crystalNodeRef.current = mesh
-
-    // Add a bright point at the same location
-    const ptGeo = new THREE.BufferGeometry()
-    ptGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([x, y, 1]), 3))
-    const ptMat = new THREE.PointsMaterial({ color: hexColor, size: 8, sizeAttenuation: false, transparent: true, opacity: 0.9 })
-    const pt = new THREE.Points(ptGeo, ptMat)
-    r.scene.add(pt)
-    // Auto-remove after 3s
-    setTimeout(() => { r.scene.remove(pt); r.scene.remove(mesh); crystalNodeRef.current = null }, 3000)
-  }
-
-  // ── Parse ROOM_CREATE and create the room ─────────────────────────────────
+  // ── Parse ROOM_CREATE signal ─────────────────────────────────────────────
   async function handleRoomCreate(signal) {
     try {
-      const json    = JSON.parse(signal.slice('ROOM_CREATE:'.length))
-      const names   = (json.characters || [])
-      const modeId  = json.mode || 'chat'
-      const vis     = json.visibility || 'private'
-      const topic   = json.topic || ''
+      const json   = JSON.parse(signal.slice('ROOM_CREATE:'.length))
+      const names  = json.characters || []
+      const modeId = json.mode || 'chat'
+      const vis    = json.visibility || 'private'
 
-      // Resolve character objects by name
       const allChars = allCharsRef.current
       const matched  = names.map(name => {
         const lower = name.toLowerCase()
-        return allChars.find(c => c.name.toLowerCase() === lower
-          || c.name.toLowerCase().includes(lower.split(' ').slice(-1)[0])
+        return allChars.find(c =>
+          c.name.toLowerCase() === lower ||
+          c.name.toLowerCase().includes(lower.split(' ').slice(-1)[0])
         ) || {
           id:          `custom-${name}`,
           name,
           title:       'Expert',
           initial:     name.charAt(0).toUpperCase(),
-          color:       '#4f7cff',
+          color:       '#4A5C3A',
           personality: `You are ${name}. Respond in character based on your known views and expertise.`,
           tags:        [],
         }
       }).filter(Boolean)
 
       if (matched.length === 0) {
-        setWeaverError('Couldn\'t find those characters — try again.')
+        setGardenerError('Couldn\'t find those characters — try again.')
         return
       }
 
-      const modeObj = modes.find(m => m.id === modeId) || modes[0]
-
-      // Determine dominant domain for crystallisation
-      const dom    = inferDomain(matched[0])
-      const dc     = DOMAIN_COLORS[dom] || '#4f7cff'
-      setCrystallising({ domain: dom, color: dc })
-      triggerCrystallisation(dom, dc)
-
-      // Display name
+      const modeObj     = modes.find(m => m.id === modeId) || modes[0]
       const displayName = isAuthenticated
-        ? (username || localStorage.getItem('groupchat_username') || 'User')
-        : (localStorage.getItem('groupchat_username') || 'Guest')
+        ? (username || localStorage.getItem('kepos_username') || 'User')
+        : (localStorage.getItem('kepos_username') || localStorage.getItem('groupchat_username') || 'Guest')
 
-      const room = await createRoom(
-        modeObj,
-        matched,
-        displayName,
-        isAuthenticated ? userId : null,
-        vis,
-        null,
-      )
-
-      // Brief pause to let crystallisation play
-      await new Promise(res => setTimeout(res, 900))
-      setCrystallising(null)
-      setActiveDomains(new Set())
+      setIsCreating(true)
+      const room = await createRoom(modeObj, matched, displayName, isAuthenticated ? userId : null, vis, null)
+      await new Promise(res => setTimeout(res, 600))
+      setIsCreating(false)
       onRoomCreated(room)
-
     } catch (err) {
-      console.error('[WeaverEntry] room create error', err)
-      setWeaverError('Something went wrong creating the room. Please try again.')
-      setCrystallising(null)
+      console.error('[Kepos] room create error', err)
+      setGardenerError('Something went wrong creating the room. Please try again.')
+      setIsCreating(false)
     }
   }
 
-  // ── Send a message to the Weaver ──────────────────────────────────────────
+  // ── Send a message to the Gardener ──────────────────────────────────────
   const handleSend = useCallback(async () => {
     const text = inputText.trim()
-    if (!text || weaverLoading || crystallising) return
+    if (!text || gardenerLoading || isCreating) return
 
-    setWeaverError('')
-    const userMsg = { role: 'user', content: text }
-    const newMessages = [...messages, userMsg]
-    setMessages(newMessages)
+    setGardenerError('')
+    const userMsg   = { role: 'user', content: text }
+    const newMsgs   = [...messages, userMsg]
+    setMessages(newMsgs)
     setInputText('')
-    setActiveDomains(new Set())
-    setWeaverLoading(true)
+    setGardenerLoading(true)
 
     abortRef.current?.abort()
     abortRef.current = new AbortController()
 
     try {
-      const apiMessages = newMessages.map(m => ({ role: m.role, content: m.content }))
-      const response = await callDirectAPI(WEAVER_SYSTEM_PROMPT, apiMessages, 400, abortRef.current.signal)
+      const apiMsgs = newMsgs.map(m => ({ role: m.role, content: m.content }))
+      const response = await callDirectAPI(GARDENER_SYSTEM_PROMPT, apiMsgs, 400, abortRef.current.signal)
 
-      // Check for ROOM_CREATE signal
       if (response.trim().startsWith('ROOM_CREATE:')) {
         setMessages(prev => [...prev, { role: 'assistant', content: response.trim() }])
-        setWeaverLoading(false)
+        setGardenerLoading(false)
         await handleRoomCreate(response.trim())
         return
       }
@@ -619,64 +379,48 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
       setMessages(prev => [...prev, { role: 'assistant', content: response }])
     } catch (err) {
       if (err.name !== 'AbortError') {
-        setWeaverError('The Weaver couldn\'t respond — check your API key and try again.')
+        setGardenerError('The Gardener couldn\'t respond — check your API key and try again.')
       }
     } finally {
-      setWeaverLoading(false)
+      setGardenerLoading(false)
     }
-  }, [inputText, messages, weaverLoading, crystallising, isAuthenticated, userId, username]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [inputText, messages, gardenerLoading, isCreating, isAuthenticated, userId, username]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
 
-  // ── Inbox panel ───────────────────────────────────────────────────────────
   const openMyChats   = () => { setInboxTab('my');  setShowInbox(true) }
   const openBrowseAll = () => { setInboxTab('all'); setShowInbox(true) }
   const closeInbox    = () => setShowInbox(false)
 
-  // ── Derived helpers ───────────────────────────────────────────────────────
   const hasReturningRooms = getVisitedRoomCodes().length > 0
-  const isCreating        = !!crystallising
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="weaver-entry">
 
-      {/* ── Layer 1: Three.js net ── */}
-      <canvas
-        ref={canvasRef}
-        className="weaver-canvas"
-        onTouchStart={handleCanvasTouch}
-        onClick={handleCanvasTouch}
-      />
+      {/* ── Layer 1: Canvas 2D rhizome ── */}
+      <canvas ref={canvasRef} className="weaver-canvas" />
 
       {/* ── Wordmark ── */}
-      <div className="weaver-wordmark">groupchat</div>
+      <div className="weaver-wordmark">kepos</div>
 
-      {/* ── Crystallising overlay ── */}
+      {/* ── Creating overlay ── */}
       {isCreating && (
         <div className="weaver-creating">
-          <div className="weaver-creating-ring" style={{ borderColor: crystallising.color }} />
-          <div className="weaver-creating-text">Weaving your room…</div>
+          <div className="weaver-creating-ring" />
+          <div className="weaver-creating-text">Shaping your room…</div>
         </div>
       )}
 
-      {/* ── Layer 2: Weaver conversation thread ── */}
+      {/* ── Layer 2: Gardener conversation thread ── */}
       <div className="weaver-thread-area">
-
-        {/* Welcome hint — only when no messages yet */}
-        {messages.length === 0 && !isCreating && (
-          <div className="weaver-hint">
-            <span>Tell the Weaver what you want to explore and it will build your room.</span>
-          </div>
-        )}
 
         {/* Message thread */}
         {messages.length > 0 && (
           <div className="weaver-thread">
             {messages.map((m, i) => {
-              // Hide raw ROOM_CREATE lines
               if (m.role === 'assistant' && m.content.startsWith('ROOM_CREATE:')) return null
               return (
                 <div key={i} className={`weaver-msg weaver-msg-${m.role}`}>
@@ -685,7 +429,7 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
               )
             })}
 
-            {weaverLoading && (
+            {gardenerLoading && (
               <div className="weaver-msg weaver-msg-assistant weaver-typing">
                 <span /><span /><span />
               </div>
@@ -694,9 +438,8 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
           </div>
         )}
 
-        {/* Error */}
-        {weaverError && (
-          <div className="weaver-error">{weaverError}</div>
+        {gardenerError && (
+          <div className="weaver-error">{gardenerError}</div>
         )}
       </div>
 
@@ -706,19 +449,19 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
           ref={inputRef}
           className="weaver-input"
           value={inputText}
-          onChange={handleInputChange}
+          onChange={e => setInputText(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="What are you curious about?"
           rows={1}
-          disabled={weaverLoading || isCreating}
+          disabled={gardenerLoading || isCreating}
         />
         <button
           className="weaver-send-btn"
           onClick={handleSend}
-          disabled={!inputText.trim() || weaverLoading || isCreating}
+          disabled={!inputText.trim() || gardenerLoading || isCreating}
           aria-label="Send"
         >
-          {weaverLoading ? <span className="weaver-send-spinner" /> : '↑'}
+          {gardenerLoading ? <span className="weaver-send-spinner" /> : '↑'}
         </button>
       </div>
 

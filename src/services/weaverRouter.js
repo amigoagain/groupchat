@@ -105,7 +105,7 @@ async function assessRelevanceWeights(userMessage, characters, signal) {
   }
 
   const systemPrompt =
-    `You are the Weaver, a routing layer for a multi-character AI group conversation. ` +
+    `You are the Gardener, a routing layer for a multi-character AI group conversation. ` +
     `Assess each character's relevance to the user's message based on their expertise and perspective.\n\n` +
     `Return ONLY valid JSON — a single array, no markdown, no explanation:\n` +
     `[{"id":"<id>","weight":"full|brief|silent"}]\n\n` +
@@ -137,7 +137,7 @@ async function assessRelevanceWeights(userMessage, characters, signal) {
       .map(item => ({ characterId: item.id, weight: item.weight }))
   } catch (err) {
     if (err.name === 'AbortError') throw err
-    console.warn('[Weaver] Relevance assessment failed, defaulting all to full:', err.message)
+    console.warn('[Gardener] Relevance assessment failed, defaulting all to full:', err.message)
     return characters.map(c => ({ characterId: c.id, weight: 'full' }))
   }
 }
@@ -207,7 +207,7 @@ export function formatRoutingNotice(routingResult) {
     .filter(w => w.weight === 'silent')
     .length
   if (silent > 0) {
-    return `Weaver: ${routingResult.respondingCharacters.length} responding`
+    return `Gardener: ${routingResult.respondingCharacters.length} responding`
   }
   return null
 }

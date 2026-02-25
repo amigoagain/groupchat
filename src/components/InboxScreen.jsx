@@ -180,7 +180,7 @@ export default function InboxScreen({
       setMyRooms(my)
       setAllRooms(all)
     } catch (err) {
-      console.warn('[GroupChat] Inbox load error:', err)
+      console.warn('[Kepos] Inbox load error:', err)
     } finally {
       setLoading(false)
     }
@@ -209,7 +209,7 @@ export default function InboxScreen({
       <div className="inbox-header">
         <div className="inbox-header-left">
           <div className="inbox-logo-dot" />
-          <h1 className="inbox-title">GroupChat</h1>
+          <h1 className="inbox-title">Kepos</h1>
         </div>
         <div className="inbox-header-right" ref={menuRef}>
           <button
@@ -267,7 +267,7 @@ export default function InboxScreen({
               {/* About */}
               <div className="inbox-menu-item" onClick={() => { setShowMenu(false); setShowAbout(true) }}>
                 <span className="inbox-menu-icon">ℹ</span>
-                <span className="inbox-menu-label">About GroupChat</span>
+                <span className="inbox-menu-label">About Kepos</span>
               </div>
             </div>
           )}
@@ -279,7 +279,7 @@ export default function InboxScreen({
         <div className="inbox-about-overlay" onClick={() => setShowAbout(false)}>
           <div className="inbox-about-card" onClick={e => e.stopPropagation()}>
             <button className="inbox-about-close" onClick={() => setShowAbout(false)} type="button">✕</button>
-            <div className="inbox-about-title">GroupChat</div>
+            <div className="inbox-about-title">Kepos</div>
             <div className="inbox-about-body">
               A space for multi-character conversations. Bring together historical figures, philosophers, scientists, and experts — and let them talk to each other and to you.
             </div>

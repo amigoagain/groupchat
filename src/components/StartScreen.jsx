@@ -13,7 +13,7 @@ export default function StartScreen({ onStartRoom, onJoinRoom, joinError, onClea
   return (
     <div className="start-screen">
       <div className="start-content">
-        <div className="start-logo">GroupChat</div>
+        <div className="start-logo">Kepos</div>
         <div className="start-tagline">Chat with multiple AI minds simultaneously</div>
         <div className="start-description">
           Pick 2–6 AI characters — philosophers, entrepreneurs, scientists, artists — and watch them talk to you

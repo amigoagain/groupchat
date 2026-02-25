@@ -65,12 +65,12 @@ export default function SetupScreen({ onApiKeySet }) {
   return (
     <div className="setup-screen">
       <div className="setup-card">
-        <div className="setup-logo">GroupChat</div>
+        <div className="setup-logo">Kepos</div>
         <div className="setup-tagline">AI-powered group conversations</div>
 
         <h2>Connect your API key</h2>
         <p>
-          GroupChat uses the Claude API to power your AI characters. You'll need an Anthropic API key to get started.{' '}
+          Kepos uses the Claude API to power your AI characters. You'll need an Anthropic API key to get started.{' '}
           <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">
             Get one here →
           </a>
@@ -97,7 +97,7 @@ export default function SetupScreen({ onApiKeySet }) {
             type="submit"
             disabled={!apiKey.trim() || testing}
           >
-            {testing ? 'Verifying...' : 'Start GroupChat'}
+            {testing ? 'Verifying...' : 'Start Kepos'}
           </button>
         </form>
 

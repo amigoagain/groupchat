@@ -48,7 +48,7 @@ export function messageToRow(msg, roomId) {
     room_id:        roomId,
     sender_type:    msg.type,
     sender_name:    isUser      ? (msg.senderName || 'User')
-                  : isWeaver    ? 'Weaver'
+                  : isWeaver    ? 'Gardener'
                   : (msg.characterName || 'Character'),
     sender_id:      isUser      ? (msg.userId || null)
                   : isCharacter ? (msg.characterId || null)
