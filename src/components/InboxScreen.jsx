@@ -143,6 +143,7 @@ function RoomCard({ room, onOpen, onRemove, showRemove }) {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function InboxScreen({
+  initialTab,
   onStartRoom,
   onOpenRoom,
   onJoinRoom,
@@ -152,7 +153,7 @@ export default function InboxScreen({
 }) {
   const { isAuthenticated, userId, username, authLoading } = useAuth()
 
-  const [activeTab, setActiveTab] = useState('my')
+  const [activeTab, setActiveTab] = useState(initialTab ?? 'my')
   const [myRooms,   setMyRooms]   = useState([])
   const [allRooms,  setAllRooms]  = useState([])
   const [loading,   setLoading]   = useState(true)

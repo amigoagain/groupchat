@@ -7,6 +7,7 @@ import CharacterSelection from './components/CharacterSelection.jsx'
 import ChatInterface from './components/ChatInterface.jsx'
 import AuthScreen from './components/AuthScreen.jsx'
 import BranchConfig from './components/BranchConfig.jsx'
+import GraphScreen from './components/GraphScreen.jsx'
 import UsernameModal from './components/UsernameModal.jsx'
 import { hasApiKey } from './services/claudeApi.js'
 import { loadRoom, createRoom, diagnoseSupabase, incrementParticipantCount } from './utils/roomUtils.js'
@@ -56,12 +57,12 @@ export default function App() {
       } else {
         setJoinError(`Room "${code.toUpperCase()}" not found. Check the code and try again.`)
         navigate('/', { replace: true })
-        setScreen('inbox')
+        setScreen('graph')
       }
     } catch {
       setJoinError(`Could not load room "${code.toUpperCase()}". Please try again.`)
       navigate('/', { replace: true })
-      setScreen('inbox')
+      setScreen('graph')
     }
   }
 
@@ -87,7 +88,7 @@ export default function App() {
         setPendingCode(null)
         await loadAndEnterRoom(code)
       } else {
-        setScreen('inbox')
+        setScreen('graph')
       }
     }
 
@@ -107,7 +108,7 @@ export default function App() {
       setPendingCode(null)
       await loadAndEnterRoom(code)
     } else {
-      setScreen('inbox')
+      setScreen('graph')
     }
   }
 
@@ -203,7 +204,7 @@ export default function App() {
     setSelectedCharacters([])
     setBranchConfigData(null)
     navigate('/', { replace: true })
-    setScreen('inbox')
+    setScreen('graph')
   }
 
   const handleBackToMode = () => {
@@ -231,8 +232,16 @@ export default function App() {
 
       {screen === 'auth' && (
         <AuthScreen
-          onBack={() => setScreen(currentRoom ? 'chat' : 'inbox')}
+          onBack={() => setScreen(currentRoom ? 'chat' : 'graph')}
           promptReason={authPromptReason}
+        />
+      )}
+
+      {screen === 'graph' && (
+        <GraphScreen
+          onOpenRoom={handleOpenRoom}
+          onStartRoom={handleStartRoom}
+          onSignIn={() => handleSignIn()}
         />
       )}
 
@@ -270,7 +279,7 @@ export default function App() {
           branchedAtSequence={branchConfigData.branchedAtSequence}
           branchDepth={branchConfigData.branchDepth}
           onConfirm={handleBranchConfirm}
-          onCancel={() => setScreen(currentRoom ? 'chat' : 'inbox')}
+          onCancel={() => setScreen(currentRoom ? 'chat' : 'graph')}
         />
       )}
 
