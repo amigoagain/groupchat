@@ -174,7 +174,8 @@ export default function App() {
       handleSignIn('Branching a conversation requires a free account.')
       return
     }
-    setBranchConfigData(data)
+    // Include parent room characters for pre-population in BranchConfig
+    setBranchConfigData({ ...data, parentCharacters: currentRoom?.characters || [] })
     setScreen('branch-config')
   }
 
@@ -251,6 +252,7 @@ export default function App() {
             setScreen('chat')
           }}
           onSignIn={() => handleSignIn()}
+          onStartRoom={handleStartRoom}
         />
       )}
 
@@ -297,6 +299,7 @@ export default function App() {
           parentRoomId={branchConfigData.parentRoomId}
           branchedAtSequence={branchConfigData.branchedAtSequence}
           branchDepth={branchConfigData.branchDepth}
+          parentCharacters={branchConfigData.parentCharacters || []}
           onConfirm={handleBranchConfirm}
           onCancel={() => setScreen(currentRoom ? 'chat' : 'weaver')}
         />

@@ -108,23 +108,24 @@ const TOPIC_KEYWORDS = {
 }
 
 // Weaver system prompt
-const WEAVER_SYSTEM_PROMPT = `You are the Weaver, the guide of GroupChat — a platform where users have conversations with multiple AI characters simultaneously. Your job is to help users create a room in as few exchanges as possible. You are warm, curious, and brief. You never use jargon. You sound like a knowledgeable friend, not a form.
+const WEAVER_SYSTEM_PROMPT = `You are the Weaver, the guide of GroupChat — a platform where users have conversations with multiple AI characters simultaneously. Your job is to help users shape a room collaboratively, in 2–3 warm exchanges.
 
-When a user describes what they want — topics, figures, questions — do the following:
-1. Identify which characters from the GroupChat library best match their interest. The library includes historical figures, philosophers, scientists, and expert personas.
-2. Suggest 2–4 characters by name with a single sentence explaining why they fit. If the user named specific characters, confirm them.
-3. Infer the appropriate mode: Chat for casual or exploratory, Discuss for analytical or debate-style, Plan for goal-oriented, Advise for professional guidance.
-4. Ask one clarifying question only if genuinely needed — public or private, or a significant character mismatch. If everything is clear, skip clarification entirely.
-5. Confirm the room configuration in one sentence and ask if they are ready to begin.
-6. On confirmation, emit a JSON object in this exact format and nothing else:
+You are curious and brief. You sound like a knowledgeable friend, not a form. You never decide for the user — you open doors.
+
+When a user describes what they want:
+1. Identify 2–4 characters from the GroupChat library (historical figures, philosophers, scientists, expert personas) that could fit their interest.
+2. Frame your suggestion as a question or an opening, not a decision. Example: "Darwin and Marx could be a fascinating pairing here — want to go with them, or is there someone else you'd like to bring in?"
+3. Infer the appropriate mode: Chat for casual/exploratory, Discuss for analytical/debate, Plan for goal-oriented, Advise for professional guidance. Mention it lightly but let the user confirm.
+4. Always end your reply with an open question — even if you're fairly sure about the direction. Give the user space to steer.
+5. Once the user confirms (or gives a clear go-ahead), emit exactly this line and nothing else:
 ROOM_CREATE:{"characters":["Name1","Name2"],"mode":"discuss","visibility":"private","topic":"brief topic"}
 
-The app detects the ROOM_CREATE signal, creates the room automatically, and navigates the user in.
+The app detects ROOM_CREATE, creates the room automatically, and navigates in.
 
 Rules:
-- Never require more than three exchanges. If intent is clear after one, create the room after one.
-- Speed and warmth over thoroughness.
-- Keep responses under 60 words except for the ROOM_CREATE signal.
+- Never assume — always invite. "Could work well" not "perfect for you."
+- Never emit ROOM_CREATE without at least one user confirmation exchange.
+- Keep responses under 60 words (excluding ROOM_CREATE).
 - When emitting ROOM_CREATE, output ONLY that line — nothing before or after.`
 
 // ── Three.js net builder ───────────────────────────────────────────────────────
@@ -192,7 +193,7 @@ function detectDomains(text) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn }) {
+export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn, onStartRoom }) {
   const { isAuthenticated, userId, username, authLoading } = useAuth()
 
   // ── Weaver chat state ────────────────────────────────────────────────────────
@@ -667,10 +668,7 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn 
         {/* Welcome hint — only when no messages yet */}
         {messages.length === 0 && !isCreating && (
           <div className="weaver-hint">
-            {hasReturningRooms
-              ? <span>Welcome back. Start a new conversation, or tap <strong>My Chats</strong> below.</span>
-              : <span>Tell the Weaver what you want to explore and it will build your room.</span>
-            }
+            <span>Tell the Weaver what you want to explore and it will build your room.</span>
           </div>
         )}
 
@@ -733,6 +731,13 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn 
           <span className="weaver-nav-icon">💬</span>
           <span>My Chats</span>
         </button>
+
+        {onStartRoom && (
+          <button className="weaver-nav-btn weaver-nav-create" onClick={onStartRoom}>
+            <span className="weaver-nav-icon">＋</span>
+            <span>Create Room</span>
+          </button>
+        )}
 
         <button className="weaver-nav-btn" onClick={openBrowseAll}>
           <span className="weaver-nav-icon">🔍</span>

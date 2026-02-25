@@ -123,14 +123,6 @@ function RoomCard({ room, onOpen, onRemove, showRemove }) {
           </div>
         </div>
 
-        {showRemove && (
-          <button
-            className="inbox-hover-remove"
-            onClick={handleRemove}
-            title="Remove from My Chats"
-            tabIndex={-1}
-          >×</button>
-        )}
       </button>
 
       {showRemove && (
@@ -148,16 +140,34 @@ export default function InboxScreen({
   onOpenRoom,
   onJoinRoom,
   onSignIn,
+  onCreateCharacter,
   joinError,
   onClearJoinError,
 }) {
   const { isAuthenticated, userId, username, authLoading } = useAuth()
 
-  const [activeTab, setActiveTab] = useState(initialTab ?? 'my')
-  const [myRooms,   setMyRooms]   = useState([])
-  const [allRooms,  setAllRooms]  = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [joinCode,  setJoinCode]  = useState('')
+  const [activeTab,  setActiveTab]  = useState(initialTab ?? 'my')
+  const [myRooms,    setMyRooms]    = useState([])
+  const [allRooms,   setAllRooms]   = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [joinCode,   setJoinCode]   = useState('')
+  const [showMenu,   setShowMenu]   = useState(false)
+  const [showAbout,  setShowAbout]  = useState(false)
+  const menuRef = useRef(null)
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!showMenu) return
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false)
+    }
+    document.addEventListener('mousedown', handler)
+    document.addEventListener('touchstart', handler)
+    return () => {
+      document.removeEventListener('mousedown', handler)
+      document.removeEventListener('touchstart', handler)
+    }
+  }, [showMenu])
 
   const loadRooms = useCallback(async () => {
     setLoading(true)
@@ -201,21 +211,82 @@ export default function InboxScreen({
           <div className="inbox-logo-dot" />
           <h1 className="inbox-title">GroupChat</h1>
         </div>
-        <div className="inbox-header-right">
-          {isAuthenticated ? (
-            <span className="inbox-user-badge" title={`Signed in as ${username}`}>
-              {(username || 'You').charAt(0).toUpperCase()}
-            </span>
-          ) : (
-            <button className="inbox-signin-btn" onClick={onSignIn} type="button">
-              Sign in
-            </button>
-          )}
-          <button className="inbox-new-btn" onClick={onStartRoom} title="New Room" type="button">
-            +
+        <div className="inbox-header-right" ref={menuRef}>
+          <button
+            className="inbox-hamburger-btn"
+            onClick={() => setShowMenu(v => !v)}
+            aria-label="Menu"
+            type="button"
+          >
+            ☰
           </button>
+
+          {showMenu && (
+            <div className="inbox-menu-dropdown">
+              {/* Account */}
+              <div className="inbox-menu-item" onClick={() => { setShowMenu(false); onSignIn && onSignIn() }}>
+                <span className="inbox-menu-icon">👤</span>
+                <span className="inbox-menu-label">
+                  {isAuthenticated ? (username || 'Account') : 'Sign in'}
+                </span>
+                {isAuthenticated && (
+                  <span className="inbox-menu-sub">Re-send sign-in link</span>
+                )}
+              </div>
+
+              <div className="inbox-menu-divider" />
+
+              {/* My Inquiry Map — disabled */}
+              <div className="inbox-menu-item inbox-menu-disabled">
+                <span className="inbox-menu-icon">🗺</span>
+                <span className="inbox-menu-label">My Inquiry Map</span>
+                <span className="inbox-menu-soon">soon</span>
+              </div>
+
+              {/* Create Character */}
+              <div className="inbox-menu-item" onClick={() => { setShowMenu(false); onCreateCharacter && onCreateCharacter() }}>
+                <span className="inbox-menu-icon">✦</span>
+                <span className="inbox-menu-label">Create Character</span>
+              </div>
+
+              {/* Browse Public Rooms */}
+              <div className="inbox-menu-item" onClick={() => { setShowMenu(false); setActiveTab('all') }}>
+                <span className="inbox-menu-icon">🌐</span>
+                <span className="inbox-menu-label">Browse Public Rooms</span>
+              </div>
+
+              <div className="inbox-menu-divider" />
+
+              {/* Settings — disabled */}
+              <div className="inbox-menu-item inbox-menu-disabled">
+                <span className="inbox-menu-icon">⚙︎</span>
+                <span className="inbox-menu-label">Settings</span>
+                <span className="inbox-menu-soon">soon</span>
+              </div>
+
+              {/* About */}
+              <div className="inbox-menu-item" onClick={() => { setShowMenu(false); setShowAbout(true) }}>
+                <span className="inbox-menu-icon">ℹ</span>
+                <span className="inbox-menu-label">About GroupChat</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* ── About panel ── */}
+      {showAbout && (
+        <div className="inbox-about-overlay" onClick={() => setShowAbout(false)}>
+          <div className="inbox-about-card" onClick={e => e.stopPropagation()}>
+            <button className="inbox-about-close" onClick={() => setShowAbout(false)} type="button">✕</button>
+            <div className="inbox-about-title">GroupChat</div>
+            <div className="inbox-about-body">
+              A space for multi-character conversations. Bring together historical figures, philosophers, scientists, and experts — and let them talk to each other and to you.
+            </div>
+            <div className="inbox-about-version">v0.6 — early access</div>
+          </div>
+        </div>
+      )}
 
       {/* ── Tabs ── */}
       <div className="inbox-tabs">

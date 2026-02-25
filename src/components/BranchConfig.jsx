@@ -108,6 +108,7 @@ function CharPickRow({ char, isSelected, isMaxed, onToggle }) {
  *   parentRoomId        — UUID of the parent room
  *   branchedAtSequence  — sequence number of the last selected message
  *   branchDepth         — parent room's branch_depth + 1
+ *   parentCharacters    — character objects from the parent room (for pre-population fallback)
  *   onConfirm(config)   — called with { selectedChars, roomName, visibility, branchData }
  *   onCancel            — close without branching
  */
@@ -116,6 +117,7 @@ export default function BranchConfig({
   parentRoomId,
   branchedAtSequence,
   branchDepth = 0,
+  parentCharacters = [],
   onConfirm,
   onCancel,
 }) {
@@ -127,11 +129,13 @@ export default function BranchConfig({
   const [visibility, setVisibility]     = useState('private')
   const [creating, setCreating]         = useState(false)
 
-  // Load characters and pre-select those present in the founding context
+  // Load characters and pre-select those present in the founding context,
+  // falling back to the parent room's character list if no match found.
   useEffect(() => {
     loadAllCharacters().then(chars => {
       setAllChars(chars)
-      // Extract character names from the founding messages
+
+      // Primary: match characters named in founding messages
       const namesInContext = new Set(
         foundingMessages
           .filter(m => m.type === 'character' || m.sender_type === 'character')
@@ -142,11 +146,27 @@ export default function BranchConfig({
         const preSelected = chars
           .filter(c => namesInContext.has(c.name.toLowerCase().trim()))
           .slice(0, MAX_CHARS)
-        if (preSelected.length > 0) setSelected(preSelected)
+        if (preSelected.length > 0) {
+          setSelected(preSelected)
+          return
+        }
+      }
+
+      // Fallback: use parent room's characters directly
+      if (parentCharacters.length > 0) {
+        // Try to match by ID first (canonical lookup)
+        const parentIds = new Set(parentCharacters.map(c => c.id))
+        const byId = chars.filter(c => parentIds.has(c.id)).slice(0, MAX_CHARS)
+        if (byId.length > 0) {
+          setSelected(byId)
+          return
+        }
+        // If not in library (e.g. custom chars), use the parent objects directly
+        setSelected(parentCharacters.slice(0, MAX_CHARS))
       }
     }).catch(() => setAllChars([]))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // foundingMessages is stable at mount
+  }, []) // foundingMessages and parentCharacters are stable at mount
 
   // Auto-generate room name from founding context
   useEffect(() => {
