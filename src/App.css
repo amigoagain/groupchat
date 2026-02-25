@@ -5182,3 +5182,306 @@ input {
     font-size: 16px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WEAVER ENTRY SCREEN
+   Three-layer entry: procedural net + Weaver chat + persistent nav.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.weaver-entry {
+  position: fixed;
+  inset: 0;
+  background: #060b16;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 0;
+}
+
+/* ── Three.js canvas ── */
+
+.weaver-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  touch-action: none;
+}
+
+/* ── Wordmark ── */
+
+.weaver-wordmark {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  color: rgba(120, 150, 220, 0.5);
+  pointer-events: none;
+  z-index: 10;
+  user-select: none;
+}
+
+/* ── Crystallising overlay ── */
+
+.weaver-creating {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.weaver-creating-ring {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 2px solid;
+  animation: weaverRingSpin 1.2s linear infinite, weaverRingPulse 1.2s ease-in-out infinite;
+  opacity: 0.85;
+}
+
+@keyframes weaverRingSpin  { to { transform: rotate(360deg) } }
+@keyframes weaverRingPulse { 0%,100% { transform: scale(1) } 50% { transform: scale(1.12) } }
+
+.weaver-creating-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(180, 200, 255, 0.7);
+  letter-spacing: 0.05em;
+}
+
+/* ── Thread area (sits above input bar, below top) ── */
+
+.weaver-thread-area {
+  position: absolute;
+  /* top clears wordmark; bottom clears input + nav */
+  top: 52px;
+  bottom: 164px;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0 16px 8px;
+  pointer-events: none;
+}
+
+/* Welcome hint */
+.weaver-hint {
+  text-align: center;
+  font-size: 13px;
+  color: rgba(136, 153, 187, 0.7);
+  line-height: 1.5;
+  max-width: 300px;
+  margin: 0 auto 8px;
+  pointer-events: none;
+}
+
+/* Scrollable message thread */
+.weaver-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 100%;
+  overflow-y: auto;
+  pointer-events: all;
+  /* Hide scrollbar */
+  scrollbar-width: none;
+}
+.weaver-thread::-webkit-scrollbar { display: none; }
+
+/* Individual messages */
+.weaver-msg {
+  max-width: 82%;
+  padding: 9px 13px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  word-break: break-word;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.weaver-msg-user {
+  align-self: flex-end;
+  background: rgba(79, 124, 255, 0.22);
+  border: 1px solid rgba(79, 124, 255, 0.3);
+  color: var(--text-primary);
+  border-bottom-right-radius: 4px;
+}
+
+.weaver-msg-assistant {
+  align-self: flex-start;
+  background: rgba(14, 21, 37, 0.75);
+  border: 1px solid rgba(36, 48, 80, 0.8);
+  color: var(--text-primary);
+  border-bottom-left-radius: 4px;
+}
+
+/* Typing indicator */
+.weaver-typing {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 14px;
+}
+.weaver-typing span {
+  width: 5px; height: 5px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  animation: weaverTypeBounce 1.1s infinite;
+}
+.weaver-typing span:nth-child(2) { animation-delay: 0.18s; }
+.weaver-typing span:nth-child(3) { animation-delay: 0.36s; }
+@keyframes weaverTypeBounce {
+  0%,80%,100% { transform: translateY(0); opacity: 0.4; }
+  40%         { transform: translateY(-4px); opacity: 1; }
+}
+
+/* Error */
+.weaver-error {
+  align-self: center;
+  font-size: 12px;
+  color: var(--error);
+  background: rgba(255, 71, 87, 0.1);
+  border: 1px solid rgba(255, 71, 87, 0.2);
+  border-radius: var(--radius-md);
+  padding: 6px 12px;
+  margin-top: 4px;
+  pointer-events: all;
+  text-align: center;
+}
+
+/* ── Input bar ── */
+
+.weaver-input-bar {
+  position: absolute;
+  bottom: 80px; /* above nav bar */
+  left: 12px;
+  right: 12px;
+  z-index: 15;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  background: rgba(9, 13, 24, 0.82);
+  border: 1px solid var(--border-light);
+  border-radius: 18px;
+  padding: 8px 8px 8px 14px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-md);
+}
+
+.weaver-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  min-height: 22px;
+  max-height: 100px;
+  overflow-y: auto;
+  font-family: inherit;
+  scrollbar-width: none;
+}
+.weaver-input::-webkit-scrollbar { display: none; }
+.weaver-input::placeholder { color: var(--text-muted); }
+
+.weaver-send-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: none;
+  transition: background 0.15s, transform 0.1s;
+}
+.weaver-send-btn:hover:not(:disabled)  { background: var(--accent-hover); }
+.weaver-send-btn:active:not(:disabled) { transform: scale(0.94); }
+.weaver-send-btn:disabled              { background: var(--border); cursor: default; }
+
+.weaver-send-spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Persistent navigation ── */
+
+.weaver-nav {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, rgba(6, 11, 22, 0.92) 40%);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.weaver-nav-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 20px;
+  min-width: 90px;
+  min-height: 50px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.weaver-nav-btn:hover  { background: rgba(255,255,255,0.10); }
+.weaver-nav-btn:active { background: rgba(255,255,255,0.14); }
+
+/* Returning user: My Chats is more prominent */
+.weaver-nav-prominent {
+  background: rgba(79, 124, 255, 0.14);
+  border-color: rgba(79, 124, 255, 0.35);
+  color: var(--accent);
+}
+.weaver-nav-prominent:hover { background: rgba(79, 124, 255, 0.22); }
+
+.weaver-nav-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 375px) {
+  .weaver-nav-btn  { min-width: 76px; padding: 7px 14px; font-size: 10px; }
+  .weaver-nav-icon { font-size: 16px; }
+  .weaver-thread-area { bottom: 155px; }
+}

@@ -213,6 +213,19 @@ export async function getCharacterResponse(
 }
 
 /**
+ * Generic direct API call — used by the Weaver entry interface.
+ * Caller supplies the full system prompt and message history.
+ *
+ * @param {string}      systemPrompt
+ * @param {object[]}    messages   — [{ role, content }]
+ * @param {number}      maxTokens  — default 400
+ * @param {AbortSignal} [signal]
+ */
+export async function callDirectAPI(systemPrompt, messages, maxTokens = 400, signal = null) {
+  return callAnthropicAPI(systemPrompt, messages, 2, signal, maxTokens)
+}
+
+/**
  * Check whether an API key is configured.
  */
 export function hasApiKey() {

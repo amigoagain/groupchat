@@ -8,6 +8,7 @@ import ChatInterface from './components/ChatInterface.jsx'
 import AuthScreen from './components/AuthScreen.jsx'
 import BranchConfig from './components/BranchConfig.jsx'
 import GraphScreen from './components/GraphScreen.jsx'
+import WeaverEntryScreen from './components/WeaverEntryScreen.jsx'
 import UsernameModal from './components/UsernameModal.jsx'
 import { hasApiKey } from './services/claudeApi.js'
 import { loadRoom, createRoom, diagnoseSupabase, incrementParticipantCount } from './utils/roomUtils.js'
@@ -57,12 +58,12 @@ export default function App() {
       } else {
         setJoinError(`Room "${code.toUpperCase()}" not found. Check the code and try again.`)
         navigate('/', { replace: true })
-        setScreen('graph')
+        setScreen('weaver')
       }
     } catch {
       setJoinError(`Could not load room "${code.toUpperCase()}". Please try again.`)
       navigate('/', { replace: true })
-      setScreen('graph')
+      setScreen('weaver')
     }
   }
 
@@ -88,7 +89,7 @@ export default function App() {
         setPendingCode(null)
         await loadAndEnterRoom(code)
       } else {
-        setScreen('graph')
+        setScreen('weaver')
       }
     }
 
@@ -108,7 +109,7 @@ export default function App() {
       setPendingCode(null)
       await loadAndEnterRoom(code)
     } else {
-      setScreen('graph')
+      setScreen('weaver')
     }
   }
 
@@ -204,7 +205,7 @@ export default function App() {
     setSelectedCharacters([])
     setBranchConfigData(null)
     navigate('/', { replace: true })
-    setScreen('graph')
+    setScreen('weaver')
   }
 
   const handleBackToMode = () => {
@@ -234,6 +235,19 @@ export default function App() {
         <AuthScreen
           onBack={() => setScreen(currentRoom ? 'chat' : 'graph')}
           promptReason={authPromptReason}
+        />
+      )}
+
+      {screen === 'weaver' && (
+        <WeaverEntryScreen
+          onOpenRoom={handleOpenRoom}
+          onRoomCreated={(room) => {
+            setCurrentRoom(room)
+            markRoomVisited(room.code)
+            navigate(`/room/${room.code}`, { replace: true })
+            setScreen('chat')
+          }}
+          onSignIn={() => handleSignIn()}
         />
       )}
 
