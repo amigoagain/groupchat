@@ -127,12 +127,26 @@ export default function BranchConfig({
   const [visibility, setVisibility]     = useState('private')
   const [creating, setCreating]         = useState(false)
 
-  // Load characters
+  // Load characters and pre-select those present in the founding context
   useEffect(() => {
-    loadAllCharacters()
-      .then(chars => setAllChars(chars))
-      .catch(() => setAllChars([]))
-  }, [])
+    loadAllCharacters().then(chars => {
+      setAllChars(chars)
+      // Extract character names from the founding messages
+      const namesInContext = new Set(
+        foundingMessages
+          .filter(m => m.type === 'character' || m.sender_type === 'character')
+          .map(m => (m.characterName || m.sender_name || '').toLowerCase().trim())
+          .filter(Boolean)
+      )
+      if (namesInContext.size > 0) {
+        const preSelected = chars
+          .filter(c => namesInContext.has(c.name.toLowerCase().trim()))
+          .slice(0, MAX_CHARS)
+        if (preSelected.length > 0) setSelected(preSelected)
+      }
+    }).catch(() => setAllChars([]))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // foundingMessages is stable at mount
 
   // Auto-generate room name from founding context
   useEffect(() => {

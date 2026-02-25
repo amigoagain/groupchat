@@ -20,10 +20,13 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   const [isLoading,       setIsLoading]       = useState(true)  // true while fetching initial msgs
   const [isSending,       setIsSending]       = useState(false)
   const [typingCharacter, setTypingCharacter] = useState(null)
-  const [routingNotice,   setRoutingNotice]   = useState(null)
+  const [routingNotice,   setRoutingNotice]   = useState(null) // internal only, not rendered
   const [copied,          setCopied]          = useState(false)
   const [shareState,      setShareState]      = useState('idle')
   const [showRenameModal, setShowRenameModal] = useState(false)
+
+  // ── Founding context collapse (branch rooms) ───────────────────────────────
+  const [foundingCollapsed, setFoundingCollapsed] = useState(false)
 
   // ── Branch selection mode ──────────────────────────────────────────────────
   const [selectionMode,  setSelectionMode]  = useState(false)
@@ -36,6 +39,8 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   const messagesRef       = useRef(messages)
   const abortControllerRef = useRef(null)
   const cancelledRef      = useRef(false)
+  // Synchronous lock to prevent double-fire from touch + click events
+  const sendLockRef       = useRef(false)
 
   useEffect(() => { isSendingRef.current = isSending }, [isSending])
   useEffect(() => { messagesRef.current = messages },  [messages])
@@ -87,7 +92,8 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   // ── Send message ───────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
     const text = input.trim()
-    if (!text || isSending) return
+    if (!text || isSending || sendLockRef.current) return
+    sendLockRef.current = true // synchronous lock: prevents touch+click double-fire
 
     const controller = new AbortController()
     abortControllerRef.current = controller
@@ -191,6 +197,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     setIsSending(false)
     setRoutingNotice(null)
     cancelledRef.current = false
+    sendLockRef.current = false // release lock
 
     // Persist room metadata locally (no messages JSON)
     saveRoom(room.code, { ...room })
@@ -395,29 +402,40 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
         </div>
       </div>
 
-      {/* ── Founding context (branch rooms only) ── */}
+      {/* ── Founding context (branch rooms only) — collapsible ── */}
       {room.foundingContext && room.foundingContext.length > 0 && (
-        <div className="chat-founding-context">
-          <div className="chat-founding-label">⎇ Branched from this exchange</div>
-          {room.foundingContext.map((msg, i) => (
-            <div key={i} className="chat-founding-msg">
-              {(msg.sender_type === 'character' || msg.type === 'character') ? (
-                <div
-                  className="chat-founding-avatar"
-                  style={{ background: msg.sender_color || msg.characterColor || '#4f7cff' }}
-                >
-                  {msg.sender_initial || msg.characterInitial || '?'}
+        <div className={`chat-founding-context${foundingCollapsed ? ' collapsed' : ''}`}>
+          <button
+            className="chat-founding-toggle"
+            type="button"
+            onClick={() => setFoundingCollapsed(c => !c)}
+          >
+            <span className="chat-founding-label">⎇ Branched from this exchange</span>
+            <span className="chat-founding-chevron">{foundingCollapsed ? '▸' : '▾'}</span>
+          </button>
+          {!foundingCollapsed && (
+            <>
+              {room.foundingContext.map((msg, i) => (
+                <div key={i} className="chat-founding-msg">
+                  {(msg.sender_type === 'character' || msg.type === 'character') ? (
+                    <div
+                      className="chat-founding-avatar"
+                      style={{ background: msg.sender_color || msg.characterColor || '#4f7cff' }}
+                    >
+                      {msg.sender_initial || msg.characterInitial || '?'}
+                    </div>
+                  ) : (
+                    <div className="chat-founding-avatar chat-founding-avatar-user">Y</div>
+                  )}
+                  <div className="chat-founding-content">
+                    <span className="chat-founding-name">{msg.sender_name || msg.characterName || 'User'}</span>
+                    <span className="chat-founding-text">{msg.content.slice(0, 150)}{msg.content.length > 150 ? '…' : ''}</span>
+                  </div>
                 </div>
-              ) : (
-                <div className="chat-founding-avatar chat-founding-avatar-user">Y</div>
-              )}
-              <div className="chat-founding-content">
-                <span className="chat-founding-name">{msg.sender_name || msg.characterName || 'User'}</span>
-                <span className="chat-founding-text">{msg.content.slice(0, 150)}{msg.content.length > 150 ? '…' : ''}</span>
-              </div>
-            </div>
-          ))}
-          <div className="chat-founding-divider">↓ New conversation begins here</div>
+              ))}
+              <div className="chat-founding-divider">↓ New conversation begins here</div>
+            </>
+          )}
         </div>
       )}
 
@@ -483,10 +501,9 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
           })
         )}
 
-        {/* Routing notice + typing indicator */}
+        {/* Typing indicator — Weaver routing decisions are intentionally hidden */}
         {isSending && (
           <div className="chat-generation-status">
-            {routingNotice && <span className="routing-notice">{routingNotice}</span>}
             {typingCharacter && <TypingIndicator character={typingCharacter} />}
           </div>
         )}

@@ -5,6 +5,8 @@ import {
   sendMagicLink as _sendMagicLink,
   signOut as _signOut,
   onAuthStateChange,
+  persistSessionForPwa,
+  restorePersistedSession,
 } from '../lib/supabase.js'
 
 const AuthContext = createContext(null)
@@ -67,18 +69,40 @@ export function AuthProvider({ children }) {
       return
     }
 
-    // Check initial session
-    supabase.auth.getSession().then(({ data }) => {
-      const user = data?.session?.user || null
-      setAuthUser(user)
-      resolveProfile(user).finally(() => setAuthLoading(false))
-    })
+    // Initialise: check existing session, falling back to persisted PWA token
+    const init = async () => {
+      let user = null
 
-    // Listen for subsequent changes (magic link click, sign-out, etc.)
+      // 1. Normal session check (works in browser / when magic link lands in same context)
+      const { data } = await supabase.auth.getSession()
+      user = data?.session?.user || null
+
+      // 2. PWA fallback: if no session found, try restoring from the persisted token.
+      //    This handles the case where the magic link was opened in Safari but the app
+      //    is running as a standalone home-screen install with separate localStorage.
+      if (!user) {
+        const restoredSession = await restorePersistedSession()
+        user = restoredSession?.user || null
+      }
+
+      setAuthUser(user)
+      await resolveProfile(user)
+      setAuthLoading(false)
+    }
+    init()
+
+    // Listen for subsequent changes (magic link click, sign-out, token refresh, etc.)
     const unsub = onAuthStateChange((event, session) => {
       const user = session?.user || null
       setAuthUser(user)
       resolveProfile(user)
+
+      // Persist session for PWA recovery on every sign-in and token refresh
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        persistSessionForPwa(session)
+      } else if (event === 'SIGNED_OUT') {
+        persistSessionForPwa(null)
+      }
     })
 
     return unsub

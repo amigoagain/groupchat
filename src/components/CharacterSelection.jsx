@@ -252,27 +252,27 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode, 
         </div>
 
         <div className="char-v2-selected-bar">
+          {/* 6d: chips only — no instructional text; show max indicator when full */}
           <div className="char-v2-chips">
-            {selected.length === 0 ? (
-              <span className="char-v2-empty-hint">Pick 1–{MAX_CHARS} characters</span>
-            ) : (
-              selected.map(char => (
-                <button
-                  key={char.id}
-                  className="char-selected-chip"
-                  onClick={() => toggleCharacter(char)}
-                  style={{ '--chip-color': char.color }}
-                  title={`Remove ${char.name}`}
-                >
-                  <span className="chip-avatar" style={{ background: char.color }}>{char.initial}</span>
-                  <span className="chip-name">{char.name.split(' ')[0]}</span>
-                  <span className="chip-x">×</span>
-                </button>
-              ))
+            {selected.map(char => (
+              <button
+                key={char.id}
+                className="char-selected-chip"
+                onClick={() => toggleCharacter(char)}
+                style={{ '--chip-color': char.color }}
+                title={`Remove ${char.name}`}
+              >
+                <span className="chip-avatar" style={{ background: char.color }}>{char.initial}</span>
+                <span className="chip-name">{char.name.split(' ')[0]}</span>
+                <span className="chip-x">×</span>
+              </button>
+            ))}
+            {selected.length >= MAX_CHARS && (
+              <span className="char-v2-max-hint">{MAX_CHARS}/{MAX_CHARS}</span>
             )}
           </div>
           <div className="char-start-row">
-            {/* Visibility selector */}
+            {/* 6a+6b: visibility selector — dropdown anchors downward; label below icon */}
             <div className="vis-selector-wrap">
               <button
                 className="vis-selector-btn"
@@ -282,6 +282,9 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode, 
               >
                 {VISIBILITY_OPTS.find(o => o.value === visibility)?.icon || '🔒'}
               </button>
+              <span className="vis-selector-label">
+                {VISIBILITY_OPTS.find(o => o.value === visibility)?.label || 'Private'}
+              </span>
               {showVisibility && (
                 <div className="vis-dropdown">
                   {VISIBILITY_OPTS.map(opt => {
@@ -318,9 +321,7 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode, 
               onClick={() => canStart && onStartChat(selected, visibility)}
               disabled={!canStart}
             >
-              {branchContext
-                ? (canStart ? `Branch (${selected.length})` : 'Branch')
-                : (canStart ? `Start (${selected.length})` : 'Start Chat')}
+              {canStart ? `Start (${selected.length})` : 'Start Chat'}
             </button>
           </div>
         </div>
@@ -335,8 +336,8 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode, 
         )}
       </div>
 
-      {/* ── Search ── */}
-      <div className="char-v2-search-row">
+      {/* ── Search — 6e: breathing room above ── */}
+      <div className="char-v2-search-row char-v2-search-row-spaced">
         <input
           className="character-search"
           type="text"
@@ -346,19 +347,21 @@ export default function CharacterSelection({ onStartChat, onBack, selectedMode, 
         />
       </div>
 
-      {/* ── Tier filter chips ── */}
+      {/* ── Tier filter chips — 6c: scrollable with right-fade ── */}
       {counts.canonical > 0 && (
-        <div className="char-filter-tabs">
-          {TIER_TABS.map(tab => (
-            <button
-              key={tab.key}
-              className={`char-filter-tab${tierFilter === tab.key ? ' active' : ''}`}
-              onClick={() => { setTierFilter(tab.key); setDomainFilter('all') }}
-            >
-              {tab.label}
-              <span className="char-filter-count">{tab.count}</span>
-            </button>
-          ))}
+        <div className="char-filter-tabs-wrap">
+          <div className="char-filter-tabs">
+            {TIER_TABS.map(tab => (
+              <button
+                key={tab.key}
+                className={`char-filter-tab${tierFilter === tab.key ? ' active' : ''}`}
+                onClick={() => { setTierFilter(tab.key); setDomainFilter('all') }}
+              >
+                {tab.label}
+                <span className="char-filter-count">{tab.count}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
