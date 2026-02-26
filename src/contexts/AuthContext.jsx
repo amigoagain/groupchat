@@ -2,6 +2,9 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import {
   supabase,
   isSupabaseConfigured,
+  signInWithPassword as _signInWithPassword,
+  signUpWithPassword as _signUpWithPassword,
+  sendPasswordResetEmail as _sendPasswordReset,
   sendMagicLink as _sendMagicLink,
   signOut as _signOut,
   onAuthStateChange,
@@ -13,7 +16,6 @@ const AuthContext = createContext(null)
 
 /**
  * Fetch or create the app-level user profile for a Supabase auth user.
- * Calls the upsert_user_profile function defined in the SQL schema.
  */
 async function ensureUserProfile(authUser, desiredUsername) {
   if (!supabase || !authUser) return null
@@ -50,11 +52,11 @@ async function fetchUserProfile(authId) {
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function AuthProvider({ children }) {
-  const [authUser, setAuthUser]     = useState(null)   // Supabase auth.user
-  const [profile, setProfile]       = useState(null)   // users table row
-  const [authLoading, setAuthLoading] = useState(true)
+  const [authUser,      setAuthUser]      = useState(null)
+  const [profile,       setProfile]       = useState(null)
+  const [authLoading,   setAuthLoading]   = useState(true)
+  const [sessionExpired, setSessionExpired] = useState(false)
 
-  // Resolve profile from auth user
   const resolveProfile = useCallback(async (user) => {
     if (!user) { setProfile(null); return }
     const p = await fetchUserProfile(user.id) ||
@@ -62,24 +64,19 @@ export function AuthProvider({ children }) {
     setProfile(p)
   }, [])
 
-  // Subscribe to auth state changes
   useEffect(() => {
     if (!isSupabaseConfigured) {
       setAuthLoading(false)
       return
     }
 
-    // Initialise: check existing session, falling back to persisted PWA token
     const init = async () => {
       let user = null
 
-      // 1. Normal session check (works in browser / when magic link lands in same context)
       const { data } = await supabase.auth.getSession()
       user = data?.session?.user || null
 
-      // 2. PWA fallback: if no session found, try restoring from the persisted token.
-      //    This handles the case where the magic link was opened in Safari but the app
-      //    is running as a standalone home-screen install with separate localStorage.
+      // PWA fallback (for any persisted sessions from before email/password migration)
       if (!user) {
         const restoredSession = await restorePersistedSession()
         user = restoredSession?.user || null
@@ -91,23 +88,39 @@ export function AuthProvider({ children }) {
     }
     init()
 
-    // Listen for subsequent changes (magic link click, sign-out, token refresh, etc.)
     const unsub = onAuthStateChange((event, session) => {
       const user = session?.user || null
       setAuthUser(user)
       resolveProfile(user)
 
-      // Persist session for PWA recovery on every sign-in and token refresh
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         persistSessionForPwa(session)
+        setSessionExpired(false)
       } else if (event === 'SIGNED_OUT') {
         persistSessionForPwa(null)
+      } else if (event === 'TOKEN_EXPIRED') {
+        setSessionExpired(true)
       }
     })
 
     return unsub
   }, [resolveProfile])
 
+  // ── Auth actions ───────────────────────────────────────────────────────────
+
+  const signInWithPassword = useCallback(async (email, password) => {
+    await _signInWithPassword(email, password)
+  }, [])
+
+  const signUp = useCallback(async (email, password) => {
+    await _signUpWithPassword(email, password)
+  }, [])
+
+  const sendPasswordReset = useCallback(async (email) => {
+    await _sendPasswordReset(email)
+  }, [])
+
+  /** Legacy magic link — kept so any existing callsites don't crash */
   const sendMagicLink = useCallback(async (email) => {
     await _sendMagicLink(email)
   }, [])
@@ -118,10 +131,6 @@ export function AuthProvider({ children }) {
     setProfile(null)
   }, [])
 
-  /**
-   * Update the username for the current user.
-   * Used after sign-in to let the user set/confirm their display name.
-   */
   const updateUsername = useCallback(async (username) => {
     if (!authUser || !supabase) return
     const { data, error } = await supabase
@@ -134,13 +143,17 @@ export function AuthProvider({ children }) {
   }, [authUser])
 
   const value = {
-    authUser,                    // Supabase auth user (null = guest)
-    profile,                     // users table row (null = guest)
+    authUser,
+    profile,
     authLoading,
+    sessionExpired,
     isAuthenticated: Boolean(authUser),
-    userId: profile?.id || null, // app-level user UUID
+    userId:   profile?.id || null,
     username: profile?.username || null,
-    sendMagicLink,
+    signInWithPassword,
+    signUp,
+    sendPasswordReset,
+    sendMagicLink,   // legacy
     signOut,
     updateUsername,
   }
@@ -148,10 +161,6 @@ export function AuthProvider({ children }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
-/**
- * Hook to access auth state from any component.
- * Throws if used outside <AuthProvider>.
- */
 export function useAuth() {
   const ctx = useContext(AuthContext)
   if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>')

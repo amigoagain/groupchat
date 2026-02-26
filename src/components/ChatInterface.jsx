@@ -6,7 +6,7 @@ import { getCharacterResponse, generateInviteMessage } from '../services/claudeA
 import { routeMessage, formatRoutingNotice } from '../services/weaverRouter.js'
 import { isSupabaseConfigured } from '../lib/supabase.js'
 import { insertMessage, fetchMessages, fetchMessagesAfter } from '../utils/messageUtils.js'
-import { saveRoom, ensureParticipant, getMyRole, listParticipants, setParticipantRole } from '../utils/roomUtils.js'
+import { saveRoom, ensureParticipant, getMyRole, listParticipants, setParticipantRole, fetchRoomAncestors } from '../utils/roomUtils.js'
 import { getUsername, setUsername } from '../utils/username.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 
@@ -21,17 +21,21 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   const [isSending,       setIsSending]       = useState(false)
   const [typingCharacter, setTypingCharacter] = useState(null)
   const [routingNotice,   setRoutingNotice]   = useState(null) // internal only, not rendered
-  const [copied,          setCopied]          = useState(false)
   const [shareState,      setShareState]      = useState('idle')
   const [showRenameModal, setShowRenameModal] = useState(false)
 
   // ── Founding context collapse (branch rooms) ───────────────────────────────
   const [foundingCollapsed, setFoundingCollapsed] = useState(false)
 
-  // ── Participant management (admin) ─────────────────────────────────────────
+  // ── Participant management ─────────────────────────────────────────────────
   const [showParticipants,  setShowParticipants]  = useState(false)
   const [participants,      setParticipants]      = useState([])
   const [myRole,            setMyRole]            = useState(null)
+
+  // ── Genealogy panel ────────────────────────────────────────────────────────
+  const [showGenealogy,  setShowGenealogy]  = useState(false)
+  const [ancestors,      setAncestors]      = useState([])
+  const [ancestorsLoading, setAncestorsLoading] = useState(false)
 
   // ── Branch selection mode ──────────────────────────────────────────────────
   const [selectionMode,  setSelectionMode]  = useState(false)
@@ -44,7 +48,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   const messagesRef       = useRef(messages)
   const abortControllerRef = useRef(null)
   const cancelledRef      = useRef(false)
-  // Synchronous lock to prevent double-fire from touch + click events
   const sendLockRef       = useRef(false)
 
   useEffect(() => { isSendingRef.current = isSending }, [isSending])
@@ -64,7 +67,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
       .then(msgs => { setMessages(msgs); setIsLoading(false) })
       .catch(() => setIsLoading(false))
 
-    // Register participant record
     if (isAuthenticated && userId) {
       const uname = authUsername || getUsername() || 'User'
       ensureParticipant(room.id, userId, uname, isCreator)
@@ -113,7 +115,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   const handleSend = useCallback(async () => {
     const text = input.trim()
     if (!text || isSending || sendLockRef.current) return
-    sendLockRef.current = true // synchronous lock: prevents touch+click double-fire
+    sendLockRef.current = true
 
     const controller = new AbortController()
     abortControllerRef.current = controller
@@ -130,7 +132,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
       userId:     userId || null,
     }
 
-    // Insert to DB and get the saved row (with real id + sequence_number)
     let savedUserMsg
     if (isSupabaseConfigured && room?.id) {
       savedUserMsg = await insertMessage(userMsgPayload, room.id)
@@ -138,8 +139,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
       savedUserMsg = { ...userMsgPayload, id: `user_${Date.now()}`, sequenceNumber: 0, timestamp: new Date().toISOString() }
     }
 
-    // Exclude context messages (carried-over branch history) from the AI conversation snapshot.
-    // They are already present in the system prompt via foundingContext.
     const conversationSnapshot = messagesRef.current.filter(m => !m.isContext)
     setMessages(prev => [...prev, savedUserMsg])
     setInput('')
@@ -148,7 +147,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
 
-    // ── Weaver routing ──────────────────────────────────────────────────────
     const routing = await routeMessage(text, room.characters, conversationSnapshot, controller.signal)
     const notice  = formatRoutingNotice(routing)
     if (notice) setRoutingNotice(notice)
@@ -219,22 +217,14 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     setIsSending(false)
     setRoutingNotice(null)
     cancelledRef.current = false
-    sendLockRef.current = false // release lock
+    sendLockRef.current = false
 
-    // Persist room metadata locally (no messages JSON)
     saveRoom(room.code, { ...room })
     onUpdateRoom({ ...room })
   }, [input, isSending, room, onUpdateRoom, isAuthenticated, authUsername, userId])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
-  }
-
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(room.code).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
   }
 
   const handleShareLink = async () => {
@@ -289,10 +279,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     setSelectionRange({ start: null, end: null })
   }, [])
 
-  /**
-   * Handle dragging the top or bottom selection handle.
-   * Called from MessageBubble when the handle is dragged to a new message idx.
-   */
   const handleHandleMove = useCallback((handleType, newIdx) => {
     setSelectionRange(prev => {
       if (handleType === 'start') {
@@ -305,9 +291,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     })
   }, [])
 
-  /**
-   * Toggle a single message's selection by tapping it in selection mode.
-   */
   const handleMessageTap = useCallback((idx) => {
     if (!selectionMode) return
     setSelectionRange(prev => {
@@ -333,6 +316,24 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     exitSelectionMode()
   }, [onOpenBranchConfig, selectedMessages, room, exitSelectionMode])
 
+  // ── Branch icon: toggle selection mode or confirm branch ──────────────────
+  const handleBranchIconTap = useCallback(() => {
+    if (selectionMode) {
+      if (selectedMessages.length > 0) {
+        handleBranchFromSelection()
+      } else {
+        exitSelectionMode()
+      }
+    } else {
+      // Enter selection mode at the last non-context message
+      const liveMessages = messages.filter(m => !m.isContext)
+      if (liveMessages.length > 0) {
+        const lastIdx = messages.length - 1
+        enterSelectionMode(lastIdx)
+      }
+    }
+  }, [selectionMode, selectedMessages, handleBranchFromSelection, exitSelectionMode, messages, enterSelectionMode])
+
   // ── Participant management ─────────────────────────────────────────────────
   const handleOpenParticipants = async () => {
     const list = await listParticipants(room.id)
@@ -346,73 +347,124 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     setParticipants(prev => prev.map(x => x.user_id === p.user_id ? { ...x, role: newRole } : x))
   }
 
+  // ── Genealogy panel ────────────────────────────────────────────────────────
+  const handleOpenGenealogy = async () => {
+    setShowGenealogy(true)
+    if (room.parentRoomId && ancestors.length === 0) {
+      setAncestorsLoading(true)
+      const chain = await fetchRoomAncestors(room.parentRoomId)
+      setAncestors(chain)
+      setAncestorsLoading(false)
+    }
+  }
+
+  const formatDate = (iso) => {
+    if (!iso) return '—'
+    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
   // ── Derived state ──────────────────────────────────────────────────────────
   const isReadOnly = room.visibility === 'read-only'
-  // Creators (admins) can always type; authenticated participants can type; viewers cannot
   const canType    = !isReadOnly || isCreator || myRole === 'participant'
   const isEmpty    = !isLoading && messages.length === 0
+  const isLiveSync = isSupabaseConfigured
 
-  const shareLabel = {
-    idle:       '🔗 Share',
-    generating: '✦ Writing…',
-    copied:     '✓ Copied!',
-    shared:     '✓ Shared!',
-  }[shareState]
-
-  // Abbreviated character names for the header
+  // Abbreviated character names for room title
   const charTitle = (() => {
-    const names = room.characters.map(c => c.name.split(' ').pop()) // last names
+    const names = room.characters.map(c => c.name.split(' ').pop())
     if (names.length <= 3) return names.join(' · ')
     return names.slice(0, 2).join(' · ') + ` +${names.length - 2}`
   })()
 
+  const modeLabel = room.mode?.name || 'Chat'
+
   return (
     <div className={`chat-screen${selectionMode ? ' selection-mode' : ''}`}>
-      {/* ── Header (simplified) ── */}
-      <div className="chat-header">
-        <div className="chat-header-left">
-          <button className="chat-back-btn" onClick={onBack} title="Back" aria-label="Back">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+
+      {/* ── Floating header overlay ── */}
+      <div className="chat-float-header">
+        {/* Top-left: back arrow */}
+        <div className="chat-float-left">
+          <button
+            className="chat-float-btn"
+            onClick={onBack}
+            title="Back"
+            aria-label="Back"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="15 18 9 12 15 6"/>
             </svg>
           </button>
-          <div className="chat-room-title">
-            <span className="chat-room-chars">{charTitle}</span>
-            {room.parentRoomId && <span className="chat-branch-indicator"> ⎇</span>}
-          </div>
         </div>
 
-        <div className="chat-header-right">
-          {isCreator && room.visibility === 'read-only' && (
-            <button
-              className="chat-icon-btn"
-              onClick={handleOpenParticipants}
-              title="Manage participants"
-              type="button"
-            >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-              </svg>
-            </button>
-          )}
-
+        {/* Top-right: participants, share, genealogy, branch */}
+        <div className="chat-float-right">
+          {/* Participants — shown to all (admin sees management) */}
           <button
-            className={`chat-icon-btn${shareState !== 'idle' ? ` share-state-${shareState}` : ''}`}
+            className="chat-float-btn"
+            onClick={handleOpenParticipants}
+            title="Characters in this room"
+            aria-label="Characters"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+          </button>
+
+          {/* Share — with live sync dot */}
+          <button
+            className={`chat-float-btn${shareState !== 'idle' ? ` share-active` : ''}`}
             onClick={handleShareLink}
             disabled={shareState === 'generating'}
             title="Share room"
-            type="button"
+            aria-label="Share"
           >
             {shareState === 'generating' && <span className="share-spinner" />}
             {shareState === 'copied' || shareState === 'shared'
-              ? <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              : <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-                </svg>
+              ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              : <span className="chat-float-share-wrap">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                  </svg>
+                  {isLiveSync && <span className="chat-live-dot" />}
+                </span>
             }
+          </button>
+
+          {/* Genealogy */}
+          <button
+            className="chat-float-btn"
+            onClick={handleOpenGenealogy}
+            title="Room lineage"
+            aria-label="Genealogy"
+          >
+            {/* Branching path / lineage icon */}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="6" cy="6" r="2"/>
+              <circle cx="6" cy="18" r="2"/>
+              <circle cx="18" cy="12" r="2"/>
+              <line x1="6" y1="8" x2="6" y2="16"/>
+              <line x1="8" y1="6" x2="16" y2="10.5"/>
+              <line x1="8" y1="18" x2="16" y2="13.5"/>
+            </svg>
+          </button>
+
+          {/* Branch */}
+          <button
+            className={`chat-float-btn${selectionMode ? ' chat-float-btn-active' : ''}`}
+            onClick={handleBranchIconTap}
+            title={selectionMode ? (selectedMessages.length > 0 ? 'Branch selected messages' : 'Cancel') : 'Branch this conversation'}
+            aria-label="Branch"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="6" y1="3" x2="6" y2="15"/>
+              <circle cx="18" cy="6" r="3"/>
+              <circle cx="6" cy="18" r="3"/>
+              <path d="M18 9a9 9 0 0 1-9 9"/>
+            </svg>
           </button>
         </div>
       </div>
@@ -460,39 +512,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
           <div className="chat-loading">
             <div className="loading-spinner" style={{ width: 28, height: 28 }} />
           </div>
-        ) : isEmpty ? (
-          <div className="chat-empty">
-            <div className="chat-empty-avatars">
-              {room.characters.slice(0, 4).map((char, i) => (
-                <div
-                  key={char.id}
-                  className="chat-empty-avatar"
-                  style={{ background: char.color, zIndex: room.characters.length - i }}
-                >
-                  {char.initial}
-                </div>
-              ))}
-            </div>
-            <h3>The room is ready</h3>
-            <p>
-              {room.characters.map(c => c.name).join(', ')}{' '}
-              {room.characters.length === 1 ? 'is' : 'are'} here and ready to{' '}
-              {room.mode.id === 'chat' ? 'chat' :
-               room.mode.id === 'discuss' ? 'debate' :
-               room.mode.id === 'plan' ? 'plan with you' : 'advise you'}.
-              <br />Say something to get the conversation started.
-              {room.characters.length > 1 && (
-                <><br /><span className="chat-empty-address-hint">
-                  Tip: Start with a name like "<em>{room.characters[0].name},</em>" to address someone directly.
-                </span></>
-              )}
-            </p>
-            {isSupabaseConfigured && (
-              <div className="chat-sync-badge">🔄 Live sync · share the room code for others to join</div>
-            )}
-          </div>
-        ) : (() => {
-          // Find where context messages end so we can insert a divider
+        ) : isEmpty ? null : (() => {
           const lastContextIdx = messages.reduce((last, m, i) => m.isContext ? i : last, -1)
           return messages.map((msg, idx) => {
             const isSelected = selectionMode &&
@@ -501,7 +521,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
             return (
               <React.Fragment key={msg.id || idx}>
-                {/* Divider between context and new conversation */}
                 {idx === lastContextIdx + 1 && lastContextIdx >= 0 && (
                   <div className="msg-context-divider">conversation continues here</div>
                 )}
@@ -523,7 +542,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
           })
         })()}
 
-        {/* Typing indicator — Weaver routing decisions are intentionally hidden */}
         {isSending && (
           <div className="chat-generation-status">
             {typingCharacter && <TypingIndicator character={typingCharacter} />}
@@ -555,7 +573,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
         </div>
       )}
 
-      {/* ── Input — hidden for read-only rooms (unless admin or participant) ── */}
+      {/* ── Input ── */}
       {isReadOnly && !canType ? (
         <div className="chat-readonly-bar">
           <span className="chat-readonly-label">🔒 Read-only room</span>
@@ -616,7 +634,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
             {isSending
               ? 'Tap ■ to stop · Shift+Enter for new line'
               : 'Enter to send · Shift+Enter for new line'}
-            {isSupabaseConfigured && <span className="chat-input-hint-sync"> · Live sync on</span>}
           </div>
         </div>
       )}
@@ -625,38 +642,172 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
         <UsernameModal onSave={handleRenameSave} isRename={true} />
       )}
 
-      {/* ── Participant management panel (admin only, read-only rooms) ── */}
+      {/* ── Participants panel ── */}
       {showParticipants && (
         <div className="participants-overlay" onClick={() => setShowParticipants(false)}>
           <div className="participants-panel" onClick={e => e.stopPropagation()}>
             <div className="participants-header">
-              <span className="participants-title">Participants</span>
+              <span className="participants-title">Characters</span>
               <button className="participants-close" onClick={() => setShowParticipants(false)} type="button">✕</button>
             </div>
-            <div className="participants-subtext">
-              Toggle who can type. Viewers can read; participants can reply.
-            </div>
-            {participants.length === 0 ? (
-              <div className="participants-empty">No one has joined yet.</div>
-            ) : (
-              <div className="participants-list">
-                {participants.map(p => (
-                  <div key={p.user_id} className="participants-row">
-                    <div className="participants-name">{p.username || 'Anonymous'}</div>
-                    <button
-                      className={`participants-role-btn ${p.role === 'participant' ? 'active' : ''}`}
-                      onClick={() => handleToggleRole(p)}
-                      type="button"
-                    >
-                      {p.role === 'participant' ? '✓ Can type' : 'Viewer'}
-                    </button>
+
+            {/* Always show the characters in this room */}
+            <div className="participants-chars-list">
+              {room.characters.map(c => (
+                <div key={c.id} className="participants-char-row">
+                  <div className="participants-char-avatar" style={{ background: c.color }}>
+                    {c.initial}
                   </div>
-                ))}
+                  <div className="participants-char-info">
+                    <div className="participants-char-name">{c.name}</div>
+                    <div className="participants-char-title">{c.title}</div>
+                  </div>
+                  <div className={`participants-char-tier ${c.isCanonical ? 'canonical' : c.category === 'expert' ? 'expert' : 'variant'}`}>
+                    {c.isCanonical ? 'canonical' : c.category === 'expert' ? 'expert' : 'variant'}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Admin: manage human participants */}
+            {isCreator && room.visibility === 'read-only' && (
+              <>
+                <div className="participants-divider" />
+                <div className="participants-subtext">
+                  Toggle who can type. Viewers can read; participants can reply.
+                </div>
+                {participants.length === 0 ? (
+                  <div className="participants-empty">No one has joined yet.</div>
+                ) : (
+                  <div className="participants-list">
+                    {participants.map(p => (
+                      <div key={p.user_id} className="participants-row">
+                        <div className="participants-name">{p.username || 'Anonymous'}</div>
+                        <button
+                          className={`participants-role-btn ${p.role === 'participant' ? 'active' : ''}`}
+                          onClick={() => handleToggleRole(p)}
+                          type="button"
+                        >
+                          {p.role === 'participant' ? '✓ Can type' : 'Viewer'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="participants-admin-note">
+                  You (admin) can always type in this room.
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Genealogy panel ── */}
+      {showGenealogy && (
+        <div className="genealogy-overlay" onClick={() => setShowGenealogy(false)}>
+          <div className="genealogy-panel" onClick={e => e.stopPropagation()}>
+            <div className="genealogy-pull-handle" />
+
+            <div className="genealogy-header">
+              <span className="genealogy-title">Room lineage</span>
+              <button className="genealogy-close" onClick={() => setShowGenealogy(false)} type="button">✕</button>
+            </div>
+
+            {/* Room details */}
+            <div className="genealogy-section">
+              <div className="genealogy-section-label">This room</div>
+              <div className="genealogy-detail-row">
+                <span className="genealogy-detail-key">Characters</span>
+                <span className="genealogy-detail-val">{room.characters.map(c => c.name).join(', ')}</span>
+              </div>
+              <div className="genealogy-detail-row">
+                <span className="genealogy-detail-key">Mode</span>
+                <span className="genealogy-detail-val">{modeLabel}</span>
+              </div>
+              <div className="genealogy-detail-row">
+                <span className="genealogy-detail-key">Created by</span>
+                <span className="genealogy-detail-val">{room.createdByName || 'Guest'}</span>
+              </div>
+              <div className="genealogy-detail-row">
+                <span className="genealogy-detail-key">Created</span>
+                <span className="genealogy-detail-val">{formatDate(room.createdAt)}</span>
+              </div>
+              <div className="genealogy-detail-row">
+                <span className="genealogy-detail-key">Room code</span>
+                <span className="genealogy-detail-val genealogy-code">{room.code}</span>
+              </div>
+            </div>
+
+            {/* Lineage chain */}
+            {room.parentRoomId ? (
+              <div className="genealogy-section">
+                <div className="genealogy-section-label">Branch lineage</div>
+                {ancestorsLoading ? (
+                  <div className="genealogy-loading">
+                    <div className="loading-spinner" style={{ width: 22, height: 22 }} />
+                  </div>
+                ) : (
+                  <div className="genealogy-chain">
+                    {/* Current room marker */}
+                    <div className="genealogy-chain-node current">
+                      <div className="genealogy-node-dot current" />
+                      <div className="genealogy-node-content">
+                        <div className="genealogy-node-chars">{charTitle}</div>
+                        <div className="genealogy-node-meta">{formatDate(room.createdAt)}</div>
+                      </div>
+                    </div>
+
+                    {ancestors.map((ancestor, i) => (
+                      <React.Fragment key={ancestor.id || i}>
+                        <div className="genealogy-chain-line" />
+                        <div
+                          className={`genealogy-chain-node${ancestor.accessible === false ? ' locked' : ' clickable'}`}
+                          onClick={() => {
+                            if (ancestor.accessible !== false && ancestor.code) {
+                              setShowGenealogy(false)
+                              // Navigate to parent room
+                              window.location.href = `${window.location.origin}/room/${ancestor.code}`
+                            }
+                          }}
+                        >
+                          <div className="genealogy-node-dot" />
+                          <div className="genealogy-node-content">
+                            <div className="genealogy-node-chars">
+                              {ancestor.characters?.map(c => c.name?.split(' ').pop()).join(' · ') || 'Room'}
+                              {ancestor.accessible === false && <span className="genealogy-lock-icon">🔒</span>}
+                            </div>
+                            <div className="genealogy-node-meta">
+                              {formatDate(ancestor.createdAt)} · by {ancestor.createdByName || 'Guest'}
+                            </div>
+                            {ancestor.code && ancestor.accessible !== false && (
+                              <div className="genealogy-node-code">{ancestor.code}</div>
+                            )}
+                          </div>
+                        </div>
+                      </React.Fragment>
+                    ))}
+
+                    {/* Root indicator */}
+                    {ancestors.length > 0 && !ancestors[ancestors.length - 1]?.parentRoomId && (
+                      <>
+                        <div className="genealogy-chain-line" />
+                        <div className="genealogy-chain-node root">
+                          <div className="genealogy-node-dot root" />
+                          <div className="genealogy-node-content">
+                            <div className="genealogy-node-chars">Origin room</div>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="genealogy-section">
+                <div className="genealogy-origin-badge">✦ Origin room — this is where the chain begins</div>
               </div>
             )}
-            <div className="participants-admin-note">
-              You (admin) can always type in this room.
-            </div>
           </div>
         </div>
       )}

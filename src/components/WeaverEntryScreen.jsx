@@ -277,11 +277,12 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
   const [showInbox, setShowInbox] = useState(false)
   const [inboxTab,  setInboxTab]  = useState('my')
 
-  const canvasRef   = useRef(null)
-  const inputRef    = useRef(null)
-  const chatEndRef  = useRef(null)
-  const abortRef    = useRef(null)
-  const allCharsRef = useRef([])
+  const canvasRef    = useRef(null)
+  const inputRef     = useRef(null)
+  const inputBarRef  = useRef(null)
+  const chatEndRef   = useRef(null)
+  const abortRef     = useRef(null)
+  const allCharsRef  = useRef([])
 
   // Load characters
   useEffect(() => {
@@ -299,6 +300,32 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
     if (!canvas) return
     const cleanup = initRhizome(canvas)
     return cleanup
+  }, [])
+
+  // ── visualViewport: keep input bar above keyboard on iOS ─────────────────
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+
+    const handleViewportResize = () => {
+      const bar = inputBarRef.current
+      if (!bar) return
+      // Bottom of visual viewport relative to layout viewport
+      const keyboardHeight = window.innerHeight - (vv.height + vv.offsetTop)
+      const bottomOffset   = Math.max(0, keyboardHeight)
+      // Nav is ~64px; add safe area when no keyboard
+      const navHeight = 64
+      bar.style.bottom = bottomOffset > 10
+        ? `${bottomOffset + 8}px`
+        : `calc(${navHeight}px + max(0px, env(safe-area-inset-bottom)))`
+    }
+
+    vv.addEventListener('resize', handleViewportResize)
+    vv.addEventListener('scroll', handleViewportResize)
+    return () => {
+      vv.removeEventListener('resize', handleViewportResize)
+      vv.removeEventListener('scroll', handleViewportResize)
+    }
   }, [])
 
   // ── Parse ROOM_CREATE signal ─────────────────────────────────────────────
@@ -396,6 +423,16 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
 
+  const handleInputChange = (e) => {
+    setInputText(e.target.value)
+    // Auto-expand textarea (max ~5 lines ≈ 120px)
+    const ta = inputRef.current
+    if (ta) {
+      ta.style.height = 'auto'
+      ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'
+    }
+  }
+
   const openMyChats   = () => { setInboxTab('my');  setShowInbox(true) }
   const openBrowseAll = () => { setInboxTab('all'); setShowInbox(true) }
   const closeInbox    = () => setShowInbox(false)
@@ -450,12 +487,12 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
       </div>
 
       {/* ── Input bar ── */}
-      <div className="weaver-input-bar">
+      <div className="weaver-input-bar" ref={inputBarRef}>
         <textarea
           ref={inputRef}
           className="weaver-input"
           value={inputText}
-          onChange={e => setInputText(e.target.value)}
+          onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           placeholder="What are you curious about?"
           rows={1}

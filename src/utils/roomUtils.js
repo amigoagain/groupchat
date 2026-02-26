@@ -340,3 +340,52 @@ export async function setParticipantRole(roomId, userId, role) {
     .upsert({ room_id: roomId, user_id: userId, role },
             { onConflict: 'room_id,user_id' })
 }
+
+/**
+ * Fetch the ancestor chain for a room (for the genealogy panel).
+ * Walks up parent_room_id links until root.
+ * Returns array of room objects from immediate parent to root, oldest last.
+ * Each entry has `accessible: false` if the room couldn't be loaded.
+ *
+ * @param {string} startParentRoomId — the parent_room_id of the current room
+ * @param {number} maxDepth          — safety cap (default 20)
+ */
+export async function fetchRoomAncestors(startParentRoomId, maxDepth = 20) {
+  if (!isSupabaseConfigured || !startParentRoomId) return []
+
+  const chain = []
+  let currentId = startParentRoomId
+  let depth = 0
+
+  while (currentId && depth < maxDepth) {
+    depth++
+    const { data, error } = await supabase
+      .from('rooms')
+      .select('id, code, mode, characters, created_at, created_by_name, created_by_user_id, parent_room_id, visibility')
+      .eq('id', currentId)
+      .single()
+
+    if (error || !data) {
+      // Room exists but we can't access it (private / deleted)
+      chain.push({ id: currentId, accessible: false })
+      break
+    }
+
+    const roomEntry = {
+      id:            data.id,
+      code:          data.code,
+      mode:          data.mode,
+      characters:    data.characters || [],
+      createdAt:     data.created_at,
+      createdByName: data.created_by_name || 'Guest',
+      parentRoomId:  data.parent_room_id || null,
+      visibility:    data.visibility,
+      accessible:    true,
+    }
+
+    chain.push(roomEntry)
+    currentId = data.parent_room_id || null
+  }
+
+  return chain
+}

@@ -9,7 +9,7 @@ export const supabase =
         auth: {
           persistSession: true,
           autoRefreshToken: true,
-          detectSessionInUrl: true, // handles magic-link redirect hash automatically
+          detectSessionInUrl: true,
         },
       })
     : null
@@ -19,8 +19,47 @@ export const isSupabaseConfigured = Boolean(supabase)
 // ── Auth helpers ──────────────────────────────────────────────────────────────
 
 /**
- * Send a magic link to the given email address.
- * On click the user is redirected back to window.location.origin.
+ * Sign in with email and password.
+ */
+export async function signInWithPassword(email, password) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email:    email.trim().toLowerCase(),
+    password,
+  })
+  if (error) throw error
+  return data
+}
+
+/**
+ * Sign up with email and password.
+ * Supabase will send a confirmation email unless email confirmations are disabled.
+ */
+export async function signUpWithPassword(email, password) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { data, error } = await supabase.auth.signUp({
+    email:    email.trim().toLowerCase(),
+    password,
+    options: { emailRedirectTo: window.location.origin },
+  })
+  if (error) throw error
+  return data
+}
+
+/**
+ * Send a password reset email.
+ */
+export async function sendPasswordResetEmail(email) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { error } = await supabase.auth.resetPasswordForEmail(
+    email.trim().toLowerCase(),
+    { redirectTo: `${window.location.origin}/reset-password` },
+  )
+  if (error) throw error
+}
+
+/**
+ * Send a magic link to the given email address (kept for legacy fallback).
  */
 export async function sendMagicLink(email) {
   if (!supabase) throw new Error('Supabase not configured')
@@ -68,18 +107,12 @@ export function onAuthStateChange(callback) {
 }
 
 // ── PWA session bridge ────────────────────────────────────────────────────────
-// On iOS, an installed PWA and Safari have separate localStorage contexts.
-// When a magic link is clicked it opens in Safari, which handles the auth
-// and stores the session there — but the PWA never sees it.
-// Fix: manually persist the session under a predictable key so that on next
-// app launch we can attempt to restore it via supabase.auth.setSession().
+// With email/password auth, sessions persist natively in localStorage and do
+// not require the PWA bridge. The bridge is kept for backwards compatibility
+// with any existing sessions.
 
 const PWA_SESSION_KEY = 'gc_pwa_session'
 
-/**
- * Persist access + refresh tokens to localStorage for PWA session recovery.
- * Call on SIGNED_IN / TOKEN_REFRESHED events.
- */
 export function persistSessionForPwa(session) {
   if (!session?.access_token) {
     try { localStorage.removeItem(PWA_SESSION_KEY) } catch {}
@@ -93,11 +126,6 @@ export function persistSessionForPwa(session) {
   } catch {}
 }
 
-/**
- * Attempt to restore a previously persisted session.
- * Called on startup before the normal getSession() check.
- * Returns the restored session or null.
- */
 export async function restorePersistedSession() {
   if (!supabase) return null
   try {
