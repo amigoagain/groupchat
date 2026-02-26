@@ -158,6 +158,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
       setTypingCharacter(character)
 
       try {
+        const lastSeq = messagesRef.current.at(-1)?.sequenceNumber ?? null
         const responseText = await getCharacterResponse(
           character,
           room.mode,
@@ -168,6 +169,8 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
           controller.signal,
           character.responseWeight || 'full',
           room.foundingContext || null,
+          room.id || null,
+          lastSeq,
         )
 
         if (cancelledRef.current) break
