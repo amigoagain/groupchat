@@ -24,9 +24,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   const [shareState,      setShareState]      = useState('idle')
   const [showRenameModal, setShowRenameModal] = useState(false)
 
-  // ── Founding context collapse (branch rooms) ───────────────────────────────
-  const [foundingCollapsed, setFoundingCollapsed] = useState(false)
-
   // ── Participant management ─────────────────────────────────────────────────
   const [showParticipants,  setShowParticipants]  = useState(false)
   const [participants,      setParticipants]      = useState([])
@@ -42,13 +39,18 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   const [selectionRange, setSelectionRange] = useState({ start: null, end: null })
   const msgRefs = useRef([]) // one ref per message div
 
-  const messagesEndRef    = useRef(null)
-  const textareaRef       = useRef(null)
-  const isSendingRef      = useRef(false)
-  const messagesRef       = useRef(messages)
-  const abortControllerRef = useRef(null)
-  const cancelledRef      = useRef(false)
-  const sendLockRef       = useRef(false)
+  const messagesEndRef      = useRef(null)
+  const messagesContainerRef = useRef(null)
+  const textareaRef         = useRef(null)
+  const inputAreaRef        = useRef(null)
+  const isSendingRef        = useRef(false)
+  const messagesRef         = useRef(messages)
+  const abortControllerRef  = useRef(null)
+  const cancelledRef        = useRef(false)
+  const sendLockRef         = useRef(false)
+
+  // ── Jump-to-bottom button ──────────────────────────────────────────────────
+  const [showScrollBtn, setShowScrollBtn] = useState(false)
 
   useEffect(() => { isSendingRef.current = isSending }, [isSending])
   useEffect(() => { messagesRef.current = messages },  [messages])
@@ -101,6 +103,40 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages, typingCharacter, selectionMode])
+
+  // ── visualViewport: lift fixed input above keyboard on iOS ────────────────
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const handleResize = () => {
+      const keyboardHeight = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop))
+      document.documentElement.style.setProperty('--chat-keyboard-offset', `${keyboardHeight}px`)
+    }
+    handleResize()
+    vv.addEventListener('resize', handleResize)
+    vv.addEventListener('scroll', handleResize)
+    return () => {
+      vv.removeEventListener('resize', handleResize)
+      vv.removeEventListener('scroll', handleResize)
+      document.documentElement.style.removeProperty('--chat-keyboard-offset')
+    }
+  }, [])
+
+  // ── Scroll tracking for jump-to-bottom button ──────────────────────────────
+  useEffect(() => {
+    const el = messagesContainerRef.current
+    if (!el) return
+    const handleScroll = () => {
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      setShowScrollBtn(distFromBottom > 200)
+    }
+    el.addEventListener('scroll', handleScroll, { passive: true })
+    return () => el.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [])
 
   // ── Stop generation ────────────────────────────────────────────────────────
   const handleStop = useCallback(() => {
@@ -455,7 +491,8 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
             </svg>
           </button>
 
-          {/* Branch */}
+          {/* Branch — hidden in already-branched rooms to avoid duplicating the genealogy icon */}
+          {!room.parentRoomId && (
           <button
             className={`chat-float-btn${selectionMode ? ' chat-float-btn-active' : ''}`}
             onClick={handleBranchIconTap}
@@ -469,48 +506,12 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
               <path d="M18 9a9 9 0 0 1-9 9"/>
             </svg>
           </button>
+          )}
         </div>
       </div>
 
-      {/* ── Founding context (branch rooms only) — collapsible ── */}
-      {room.foundingContext && room.foundingContext.length > 0 && (
-        <div className={`chat-founding-context${foundingCollapsed ? ' collapsed' : ''}`}>
-          <button
-            className="chat-founding-toggle"
-            type="button"
-            onClick={() => setFoundingCollapsed(c => !c)}
-          >
-            <span className="chat-founding-label">⎇ Branched from this exchange</span>
-            <span className="chat-founding-chevron">{foundingCollapsed ? '▸' : '▾'}</span>
-          </button>
-          {!foundingCollapsed && (
-            <>
-              {room.foundingContext.map((msg, i) => (
-                <div key={i} className="chat-founding-msg">
-                  {(msg.sender_type === 'character' || msg.type === 'character') ? (
-                    <div
-                      className="chat-founding-avatar"
-                      style={{ background: msg.sender_color || msg.characterColor || '#4f7cff' }}
-                    >
-                      {msg.sender_initial || msg.characterInitial || '?'}
-                    </div>
-                  ) : (
-                    <div className="chat-founding-avatar chat-founding-avatar-user">Y</div>
-                  )}
-                  <div className="chat-founding-content">
-                    <span className="chat-founding-name">{msg.sender_name || msg.characterName || 'User'}</span>
-                    <span className="chat-founding-text">{msg.content.slice(0, 150)}{msg.content.length > 150 ? '…' : ''}</span>
-                  </div>
-                </div>
-              ))}
-              <div className="chat-founding-divider">↓ New conversation begins here</div>
-            </>
-          )}
-        </div>
-      )}
-
       {/* ── Messages ── */}
-      <div className="chat-messages">
+      <div className="chat-messages" ref={messagesContainerRef}>
         {isLoading ? (
           <div className="chat-loading">
             <div className="loading-spinner" style={{ width: 28, height: 28 }} />
@@ -576,9 +577,23 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
         </div>
       )}
 
+      {/* ── Jump to bottom button ── */}
+      {showScrollBtn && (
+        <button
+          className="chat-scroll-bottom-btn"
+          onClick={scrollToBottom}
+          aria-label="Scroll to bottom"
+          type="button"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+      )}
+
       {/* ── Input ── */}
       {isReadOnly && !canType ? (
-        <div className="chat-readonly-bar">
+        <div className="chat-readonly-bar" ref={inputAreaRef}>
           <span className="chat-readonly-label">🔒 Read-only room</span>
           {onOpenBranchConfig && (
             <button
@@ -601,7 +616,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
           )}
         </div>
       ) : (
-        <div className="chat-input-area">
+        <div className="chat-input-area" ref={inputAreaRef}>
           <div className="chat-input-wrapper">
             <textarea
               ref={textareaRef}
@@ -741,6 +756,33 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
                 <span className="genealogy-detail-val genealogy-code">{room.code}</span>
               </div>
             </div>
+
+            {/* Branch context — founding messages that seeded this room */}
+            {room.foundingContext && room.foundingContext.length > 0 && (
+              <div className="genealogy-section">
+                <div className="genealogy-section-label">Branched from</div>
+                <div className="genealogy-branch-context">
+                  {room.foundingContext.map((msg, i) => (
+                    <div key={i} className="genealogy-branch-msg">
+                      {(msg.sender_type === 'character' || msg.type === 'character') && (
+                        <div
+                          className="genealogy-branch-avatar"
+                          style={{ background: msg.sender_color || msg.characterColor || '#4A5C3A' }}
+                        >
+                          {msg.sender_initial || msg.characterInitial || '?'}
+                        </div>
+                      )}
+                      <div className="genealogy-branch-body">
+                        <div className="genealogy-branch-sender">
+                          {msg.sender_name || msg.characterName || msg.senderName || 'User'}
+                        </div>
+                        <div className="genealogy-branch-text">{msg.content}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Lineage chain */}
             {room.parentRoomId ? (

@@ -7,6 +7,7 @@ import {
   sendPasswordResetEmail as _sendPasswordReset,
   sendMagicLink as _sendMagicLink,
   signOut as _signOut,
+  updatePassword as _updatePassword,
   onAuthStateChange,
   persistSessionForPwa,
   restorePersistedSession,
@@ -56,6 +57,7 @@ export function AuthProvider({ children }) {
   const [profile,       setProfile]       = useState(null)
   const [authLoading,   setAuthLoading]   = useState(true)
   const [sessionExpired, setSessionExpired] = useState(false)
+  const [isRecovery,    setIsRecovery]    = useState(false)
 
   const resolveProfile = useCallback(async (user) => {
     if (!user) { setProfile(null); return }
@@ -98,8 +100,11 @@ export function AuthProvider({ children }) {
         setSessionExpired(false)
       } else if (event === 'SIGNED_OUT') {
         persistSessionForPwa(null)
+        setIsRecovery(false)
       } else if (event === 'TOKEN_EXPIRED') {
         setSessionExpired(true)
+      } else if (event === 'PASSWORD_RECOVERY') {
+        setIsRecovery(true)
       }
     })
 
@@ -131,6 +136,11 @@ export function AuthProvider({ children }) {
     setProfile(null)
   }, [])
 
+  const updatePassword = useCallback(async (password) => {
+    await _updatePassword(password)
+    setIsRecovery(false)
+  }, [])
+
   const updateUsername = useCallback(async (username) => {
     if (!authUser || !supabase) return
     const { data, error } = await supabase
@@ -147,6 +157,7 @@ export function AuthProvider({ children }) {
     profile,
     authLoading,
     sessionExpired,
+    isRecovery,
     isAuthenticated: Boolean(authUser),
     userId:   profile?.id || null,
     username: profile?.username || null,
@@ -156,6 +167,7 @@ export function AuthProvider({ children }) {
     sendMagicLink,   // legacy
     signOut,
     updateUsername,
+    updatePassword,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

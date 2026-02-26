@@ -73,9 +73,12 @@ function buildApiMessages(previousMessages, characterId, currentUserMessage, pre
  */
 function buildGardenerCharacterBlock(allCharacters) {
   return allCharacters.map(c => {
-    // Extract first 2-3 sentences of personality for framework summary
+    // Extract first 2-3 sentences of personality, capped at 300 chars
     const sentences = (c.personality || '').split(/(?<=[.!?])\s+/)
-    const frameworkSnippet = sentences.slice(0, 3).join(' ')
+    let frameworkSnippet = sentences.slice(0, 3).join(' ')
+    if (frameworkSnippet.length > 300) {
+      frameworkSnippet = frameworkSnippet.slice(0, 297) + '…'
+    }
 
     // Infer drift type from character metadata
     let driftNote
@@ -301,6 +304,10 @@ async function callAnthropicAPI(systemPrompt, messages, retries = 3, signal = nu
     if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
 
     try {
+      // TEMPORARY DIAGNOSTIC — remove before production
+      console.log('[GARDENER DEBUG] Full system prompt being sent:', systemPrompt)
+      console.log('[GARDENER DEBUG] System prompt character count:', systemPrompt.length)
+
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: {

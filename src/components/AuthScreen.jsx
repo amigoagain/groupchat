@@ -246,6 +246,7 @@ export default function AuthScreen({ onBack, promptReason }) {
               <button className="auth-mode-link" type="button" onClick={() => { setMode('signup'); clearError() }}>
                 Create account
               </button>
+              <div className="auth-reset-hint">Reset links open a set-password page automatically</div>
             </>
           )}
           {mode === 'signup' && (

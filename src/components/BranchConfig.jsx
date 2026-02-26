@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   loadAllCharacters,
 } from '../utils/customCharacters.js'
@@ -124,6 +124,7 @@ export default function BranchConfig({
   const [allChars, setAllChars]         = useState([])
   const [selected, setSelected]         = useState([])
   const [charSearch, setCharSearch]     = useState('')
+  const [showAllChars, setShowAllChars] = useState(false)
   const [roomName, setRoomName]         = useState('')
   const [nameLoading, setNameLoading]   = useState(false)
   const [visibility, setVisibility]     = useState('private')
@@ -206,6 +207,38 @@ export default function BranchConfig({
     })
   }, [])
 
+  // Compute a shortlist of 4-6 suggested characters from domains/categories
+  // not already represented in the current selection, prioritising canonical tier.
+  const suggestedChars = useMemo(() => {
+    if (allChars.length === 0) return []
+    const selectedIds = new Set(selected.map(c => c.id))
+    const selectedDomains = new Set(selected.map(c => inferDomain(c)))
+    const usedDomains = new Set(selectedDomains)
+    const result = []
+
+    // One pick per novel domain (canonicals first within each domain)
+    for (const domain of [...new Set(allChars.map(c => inferDomain(c)))]) {
+      if (usedDomains.has(domain)) continue
+      const pool = allChars.filter(c => !selectedIds.has(c.id) && inferDomain(c) === domain)
+      if (pool.length === 0) continue
+      const pick = pool.find(c => c.isCanonical) || pool[0]
+      result.push(pick)
+      usedDomains.add(domain)
+      if (result.length >= 6) break
+    }
+
+    // If fewer than 4 found, fill with any remaining canonicals
+    if (result.length < 4) {
+      const resultIds = new Set(result.map(c => c.id))
+      const extras = allChars
+        .filter(c => c.isCanonical && !selectedIds.has(c.id) && !resultIds.has(c.id))
+        .slice(0, 4 - result.length)
+      result.push(...extras)
+    }
+
+    return result.slice(0, 6)
+  }, [allChars, selected])
+
   const filteredChars = charSearch
     ? allChars.filter(c =>
         c.name.toLowerCase().includes(charSearch.toLowerCase()) ||
@@ -258,7 +291,7 @@ export default function BranchConfig({
         {/* Founding context */}
         <FoundingContextPreview messages={foundingMessages} />
 
-        {/* Room name */}
+        {/* 1 — Room name */}
         <div className="branch-config-section">
           <div className="branch-config-section-label">Room name</div>
           <div className="branch-name-input-wrap">
@@ -274,45 +307,7 @@ export default function BranchConfig({
           </div>
         </div>
 
-        {/* Character selection */}
-        <div className="branch-config-section">
-          <div className="branch-config-section-label">
-            Characters
-            {selected.length > 0 && (
-              <span className="branch-chars-count"> · {selected.length} selected</span>
-            )}
-          </div>
-
-          {selected.length > 0 && (
-            <div className="char-v2-chips branch-chips">
-              {selected.map(c => (
-                <CharChip key={c.id} char={c} onRemove={toggleChar} />
-              ))}
-            </div>
-          )}
-
-          <input
-            className="character-search branch-char-search"
-            type="text"
-            placeholder="Search characters…"
-            value={charSearch}
-            onChange={e => setCharSearch(e.target.value)}
-          />
-
-          <div className="branch-char-list">
-            {filteredChars.map(char => (
-              <CharPickRow
-                key={char.id}
-                char={char}
-                isSelected={selected.some(c => c.id === char.id)}
-                isMaxed={selected.length >= MAX_CHARS && !selected.some(c => c.id === char.id)}
-                onToggle={toggleChar}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Visibility */}
+        {/* 2 — Visibility */}
         <div className="branch-config-section">
           <div className="branch-config-section-label">Visibility</div>
           <div className="branch-visibility-list">
@@ -330,6 +325,77 @@ export default function BranchConfig({
               </button>
             ))}
           </div>
+        </div>
+
+        {/* 3 — Character selection */}
+        <div className="branch-config-section">
+          <div className="branch-config-section-label">
+            Characters
+            {selected.length > 0 && (
+              <span className="branch-chars-count"> · {selected.length} selected</span>
+            )}
+          </div>
+
+          {selected.length > 0 && (
+            <div className="char-v2-chips branch-chips">
+              {selected.map(c => (
+                <CharChip key={c.id} char={c} onRemove={toggleChar} />
+              ))}
+            </div>
+          )}
+
+          {/* Gardener-suggested shortlist */}
+          {suggestedChars.length > 0 && (
+            <>
+              <div className="branch-suggested-label">
+                Suggested · likely to create productive tension
+              </div>
+              <div className="branch-char-list">
+                {suggestedChars.map(char => (
+                  <CharPickRow
+                    key={char.id}
+                    char={char}
+                    isSelected={selected.some(c => c.id === char.id)}
+                    isMaxed={selected.length >= MAX_CHARS && !selected.some(c => c.id === char.id)}
+                    onToggle={toggleChar}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Collapsed "Browse all" */}
+          <button
+            className="branch-browse-toggle"
+            type="button"
+            onClick={() => setShowAllChars(v => !v)}
+          >
+            <span className="branch-browse-chevron">{showAllChars ? '▾' : '▸'}</span>
+            {showAllChars ? 'Hide full list' : 'Browse all characters'}
+          </button>
+
+          {showAllChars && (
+            <>
+              <input
+                className="character-search branch-char-search"
+                type="text"
+                placeholder="Search characters…"
+                value={charSearch}
+                onChange={e => setCharSearch(e.target.value)}
+              />
+              <div className="branch-char-list">
+                {filteredChars.map(char => (
+                  <CharPickRow
+                    key={char.id}
+                    char={char}
+                    isSelected={selected.some(c => c.id === char.id)}
+                    isMaxed={selected.length >= MAX_CHARS && !selected.some(c => c.id === char.id)}
+                    onToggle={toggleChar}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 

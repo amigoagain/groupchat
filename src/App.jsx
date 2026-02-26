@@ -6,6 +6,7 @@ import ModeSelection from './components/ModeSelection.jsx'
 import CharacterSelection from './components/CharacterSelection.jsx'
 import ChatInterface from './components/ChatInterface.jsx'
 import AuthScreen from './components/AuthScreen.jsx'
+import PasswordResetScreen from './components/PasswordResetScreen.jsx'
 import BranchConfig from './components/BranchConfig.jsx'
 import WeaverEntryScreen from './components/WeaverEntryScreen.jsx'
 // GraphScreen (force-graph) is preserved for V2 but loaded lazily to keep it off
@@ -23,7 +24,7 @@ import { useAuth } from './contexts/AuthContext.jsx'
 export default function App() {
   const { code: urlCode } = useParams()
   const navigate = useNavigate()
-  const { isAuthenticated, username: authUsername, userId, authLoading } = useAuth()
+  const { isAuthenticated, username: authUsername, userId, authLoading, isRecovery } = useAuth()
 
   const [screen, setScreen] = useState('loading')
   const [selectedMode, setSelectedMode] = useState(null)
@@ -71,6 +72,19 @@ export default function App() {
     }
   }
 
+  // ── Password recovery detection ───────────────────────────────────────────
+  // Fires when Supabase triggers PASSWORD_RECOVERY via onAuthStateChange
+  useEffect(() => {
+    if (isRecovery) setScreen('password-reset')
+  }, [isRecovery])
+
+  // Belt-and-suspenders: also detect type=recovery in URL hash on first load
+  useEffect(() => {
+    if (window.location.hash.includes('type=recovery')) {
+      setScreen('password-reset')
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Initial load — waits for username + auth ──────────────────────────────
   useEffect(() => {
     if (needsUsername) {
@@ -78,6 +92,9 @@ export default function App() {
       return
     }
     if (authLoading) return // wait for auth session to resolve
+
+    // Don't override password-reset screen triggered by URL hash
+    if (screen === 'password-reset') return
 
     const init = async () => {
       diagnoseSupabase()
@@ -244,8 +261,9 @@ export default function App() {
   return (
     <div className="app">
       {/* Persistent Kepos mark — tap to return to entry screen.
-          Hidden in chat (back arrow handles navigation) and weaver/loading. */}
-      {screen !== 'weaver' && screen !== 'loading' && screen !== 'chat' && !needsUsername && (
+          Hidden in chat, weaver, loading, branch-config, and password-reset screens. */}
+      {screen !== 'weaver' && screen !== 'loading' && screen !== 'chat' &&
+       screen !== 'branch-config' && screen !== 'password-reset' && !needsUsername && (
         <button className="kepos-mark" onClick={handleBackToStart} title="Return to Kepos">
           kepos
         </button>
@@ -270,6 +288,12 @@ export default function App() {
         <AuthScreen
           onBack={() => setScreen(currentRoom ? 'chat' : 'weaver')}
           promptReason={authPromptReason}
+        />
+      )}
+
+      {screen === 'password-reset' && (
+        <PasswordResetScreen
+          onSuccess={() => setScreen(isAuthenticated ? 'weaver' : 'auth')}
         />
       )}
 

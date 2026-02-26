@@ -47,6 +47,15 @@ export async function signUpWithPassword(email, password) {
 }
 
 /**
+ * Update the authenticated user's password (used after PASSWORD_RECOVERY flow).
+ */
+export async function updatePassword(newPassword) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) throw error
+}
+
+/**
  * Send a password reset email.
  */
 export async function sendPasswordResetEmail(email) {
