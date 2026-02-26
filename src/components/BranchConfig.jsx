@@ -129,44 +129,64 @@ export default function BranchConfig({
   const [visibility, setVisibility]     = useState('private')
   const [creating, setCreating]         = useState(false)
 
-  // Load characters and pre-select those present in the founding context,
-  // falling back to the parent room's character list if no match found.
+  // Pre-select ONLY the characters who authored the selected founding messages.
+  // If a name isn't found in the library, build a lightweight object from the message data.
+  // Does NOT fall back to all parent-room characters — the user can add more manually.
   useEffect(() => {
     loadAllCharacters().then(chars => {
       setAllChars(chars)
 
-      // Primary: match characters named in founding messages
-      const namesInContext = new Set(
-        foundingMessages
-          .filter(m => m.type === 'character' || m.sender_type === 'character')
-          .map(m => (m.characterName || m.sender_name || '').toLowerCase().trim())
-          .filter(Boolean)
-      )
-      if (namesInContext.size > 0) {
-        const preSelected = chars
-          .filter(c => namesInContext.has(c.name.toLowerCase().trim()))
-          .slice(0, MAX_CHARS)
-        if (preSelected.length > 0) {
-          setSelected(preSelected)
-          return
-        }
+      // Collect unique character authors from the selected messages (in order)
+      const authorMessages = []
+      const seenNames = new Set()
+      for (const m of foundingMessages) {
+        if (m.type !== 'character' && m.sender_type !== 'character') continue
+        const name = (m.characterName || m.sender_name || '').trim()
+        if (!name || seenNames.has(name.toLowerCase())) continue
+        seenNames.add(name.toLowerCase())
+        authorMessages.push(m)
       }
 
-      // Fallback: use parent room's characters directly
-      if (parentCharacters.length > 0) {
-        // Try to match by ID first (canonical lookup)
-        const parentIds = new Set(parentCharacters.map(c => c.id))
-        const byId = chars.filter(c => parentIds.has(c.id)).slice(0, MAX_CHARS)
-        if (byId.length > 0) {
-          setSelected(byId)
-          return
-        }
-        // If not in library (e.g. custom chars), use the parent objects directly
-        setSelected(parentCharacters.slice(0, MAX_CHARS))
+      if (authorMessages.length === 0) {
+        // No character messages in selection — leave empty for manual selection
+        return
       }
+
+      // Try to match each author against the character library
+      const preSelected = []
+      for (const m of authorMessages) {
+        const name  = (m.characterName || m.sender_name || '').trim()
+        const lower = name.toLowerCase()
+
+        // Exact name match first, then partial (last-name) match
+        const found = chars.find(c =>
+          c.name.toLowerCase() === lower ||
+          c.name.toLowerCase().endsWith(lower.split(' ').pop())
+        )
+
+        if (found) {
+          preSelected.push(found)
+        } else {
+          // Not in library — build a lightweight char from the message data
+          preSelected.push({
+            id:          m.characterId || `msg-char-${name.toLowerCase().replace(/\s+/g, '-')}`,
+            name,
+            title:       'Character',
+            initial:     name.charAt(0).toUpperCase(),
+            color:       m.characterColor || '#4A5C3A',
+            personality: `You are ${name}. Continue in character.`,
+            tags:        [],
+            isCustom:    false,
+          })
+        }
+
+        if (preSelected.length >= MAX_CHARS) break
+      }
+
+      setSelected(preSelected)
     }).catch(() => setAllChars([]))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // foundingMessages and parentCharacters are stable at mount
+  }, []) // foundingMessages is stable at mount
 
   // Auto-generate room name from founding context
   useEffect(() => {

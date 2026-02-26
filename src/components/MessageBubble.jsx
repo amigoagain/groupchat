@@ -99,6 +99,31 @@ export default function MessageBubble({
     ref:              msgRef,
   }
 
+  // ── Context message (carried over from parent branch) ───────────────────────
+  if (message.isContext) {
+    return (
+      <div
+        {...sharedProps}
+        className={`message-group message-context${message.type === 'user' ? ' message-context-user' : ' message-context-char'}`}
+      >
+        {message.type === 'character' && (
+          <div className="message-character-header">
+            <div
+              className="message-character-avatar msg-ctx-avatar"
+              style={{ background: message.characterColor }}
+            >
+              {message.characterInitial}
+            </div>
+            <div className="message-character-name" style={{ color: message.characterColor }}>
+              {message.characterName}
+            </div>
+          </div>
+        )}
+        <div className="msg-ctx-bubble">{message.content}</div>
+      </div>
+    )
+  }
+
   // ── User message ────────────────────────────────────────────────────────────
   if (message.type === 'user') {
     return (

@@ -21,34 +21,32 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { callDirectAPI } from '../services/claudeApi.js'
-import { loadAllCharacters } from '../utils/customCharacters.js'
+import { loadAllCharacters, autoCreateGardenerCharacter } from '../utils/customCharacters.js'
 import { createRoom } from '../utils/roomUtils.js'
 import { getVisitedRoomCodes } from '../utils/inboxUtils.js'
-import { inferDomain, DOMAIN_COLORS } from '../utils/domainUtils.js'
 import { modes } from '../data/modes.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import InboxScreen from './InboxScreen.jsx'
 
 // ── Gardener system prompt ─────────────────────────────────────────────────────
 
-const GARDENER_SYSTEM_PROMPT = `You are the Gardener, the guide of Kepos — a platform where users have conversations with multiple AI characters simultaneously. Your job is to help users shape a room collaboratively, in 2–3 warm exchanges.
+const GARDENER_SYSTEM_PROMPT = `You are the Gardener, the guide of Kepos — a platform where users have conversations with multiple AI characters simultaneously. Your job is to help users shape a room in 1–2 warm exchanges.
 
-You are curious and brief. You sound like a knowledgeable friend, not a form. You never decide for the user — you open doors.
+You are curious and brief. You sound like a knowledgeable friend, not a form.
 
 When a user describes what they want:
-1. Identify 2–4 characters from the Kepos library (historical figures, philosophers, scientists, expert personas) that could fit their interest.
-2. Frame your suggestion as a question or an opening, not a decision. Example: "Darwin and Marx could be a fascinating pairing here — want to go with them, or is there someone else you'd like to bring in?"
-3. Infer the appropriate mode: Chat for casual/exploratory, Discuss for analytical/debate, Plan for goal-oriented, Advise for professional guidance. Mention it lightly but let the user confirm.
-4. Always end your reply with an open question — even if you're fairly sure about the direction. Give the user space to steer.
-5. Once the user confirms (or gives a clear go-ahead), emit exactly this line and nothing else:
-ROOM_CREATE:{"characters":["Name1","Name2"],"mode":"discuss","visibility":"private","topic":"brief topic"}
+1. Identify 2–4 characters (historical figures, philosophers, scientists, writers, thinkers) that could fit their interest. You are not limited to any predefined list — suggest whoever would make the best conversation.
+2. Suggest them simply: a question or an opening. Example: "Darwin and Marx could be a fascinating pairing here — want to go with them, or is there someone else you'd like in the room?"
+3. Always end your reply with an open question that invites the user to confirm or redirect.
+4. Once the user confirms (or gives a clear go-ahead), emit exactly this line and nothing else:
+ROOM_CREATE:{"characters":["Name1","Name2"],"topic":"brief topic"}
 
 The app detects ROOM_CREATE, creates the room automatically, and navigates in.
 
 Rules:
-- Never assume — always invite. "Could work well" not "perfect for you."
+- Never ask about mode or visibility — these are handled automatically.
 - Never emit ROOM_CREATE without at least one user confirmation exchange.
-- Keep responses under 60 words (excluding ROOM_CREATE).
+- Keep responses under 50 words (excluding ROOM_CREATE).
 - When emitting ROOM_CREATE, output ONLY that line — nothing before or after.`
 
 // ── Canvas 2D Rhizome ──────────────────────────────────────────────────────────
@@ -306,30 +304,39 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
   // ── Parse ROOM_CREATE signal ─────────────────────────────────────────────
   async function handleRoomCreate(signal) {
     try {
-      const json   = JSON.parse(signal.slice('ROOM_CREATE:'.length))
-      const names  = json.characters || []
-      const modeId = json.mode || 'chat'
-      const vis    = json.visibility || 'private'
+      const json  = JSON.parse(signal.slice('ROOM_CREATE:'.length))
+      const names = json.characters || []
 
+      // Always use Discuss mode and open (public) visibility from the Gardener
+      const modeId = 'discuss'
+      const vis    = 'open'
+
+      if (names.length === 0) {
+        setGardenerError('No characters were specified — try again.')
+        return
+      }
+
+      setIsCreating(true)
+
+      // Resolve each name: find in cache, or auto-create via Claude + Supabase
       const allChars = allCharsRef.current
-      const matched  = names.map(name => {
+      const matched  = await Promise.all(names.map(async (name) => {
         const lower = name.toLowerCase()
-        return allChars.find(c =>
+        // Check the already-loaded character library first (fast path)
+        const found = allChars.find(c =>
           c.name.toLowerCase() === lower ||
-          c.name.toLowerCase().includes(lower.split(' ').slice(-1)[0])
-        ) || {
-          id:          `custom-${name}`,
-          name,
-          title:       'Expert',
-          initial:     name.charAt(0).toUpperCase(),
-          color:       '#4A5C3A',
-          personality: `You are ${name}. Respond in character based on your known views and expertise.`,
-          tags:        [],
-        }
-      }).filter(Boolean)
+          c.name.toLowerCase().endsWith(lower.split(' ').pop())
+        )
+        if (found) return found
 
-      if (matched.length === 0) {
-        setGardenerError('Couldn\'t find those characters — try again.')
+        // Not in library — auto-generate and persist
+        return autoCreateGardenerCharacter(name)
+      }))
+
+      const validChars = matched.filter(Boolean)
+      if (validChars.length === 0) {
+        setGardenerError('Couldn\'t resolve those characters — try again.')
+        setIsCreating(false)
         return
       }
 
@@ -338,9 +345,8 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
         ? (username || localStorage.getItem('kepos_username') || 'User')
         : (localStorage.getItem('kepos_username') || localStorage.getItem('groupchat_username') || 'Guest')
 
-      setIsCreating(true)
-      const room = await createRoom(modeObj, matched, displayName, isAuthenticated ? userId : null, vis, null)
-      await new Promise(res => setTimeout(res, 600))
+      const room = await createRoom(modeObj, validChars, displayName, isAuthenticated ? userId : null, vis, null)
+      await new Promise(res => setTimeout(res, 400))
       setIsCreating(false)
       onRoomCreated(room)
     } catch (err) {
@@ -465,26 +471,39 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
         </button>
       </div>
 
-      {/* ── Layer 3: Persistent navigation ── */}
+      {/* ── Layer 3: Persistent navigation (icon-only) ── */}
       <div className="weaver-nav">
         <button
           className={`weaver-nav-btn ${hasReturningRooms ? 'weaver-nav-prominent' : ''}`}
           onClick={openMyChats}
+          aria-label="My Chats"
+          title="My Chats"
         >
-          <span className="weaver-nav-icon">💬</span>
-          <span>My Chats</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
         </button>
 
-        {onStartRoom && (
-          <button className="weaver-nav-btn weaver-nav-create" onClick={onStartRoom}>
-            <span className="weaver-nav-icon">＋</span>
-            <span>Create Room</span>
-          </button>
-        )}
+        <button
+          className="weaver-nav-btn weaver-nav-create"
+          onClick={onStartRoom}
+          aria-label="Create Room"
+          title="Create Room"
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
 
-        <button className="weaver-nav-btn" onClick={openBrowseAll}>
-          <span className="weaver-nav-icon">🔍</span>
-          <span>Browse All</span>
+        <button
+          className="weaver-nav-btn"
+          onClick={openBrowseAll}
+          aria-label="Browse All"
+          title="Browse All"
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
         </button>
       </div>
 

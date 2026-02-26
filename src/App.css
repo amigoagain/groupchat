@@ -818,93 +818,92 @@ input {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px;
+  padding: 10px 14px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-  gap: 12px;
+  gap: 8px;
+  min-height: 52px;
 }
 
 .chat-header-left {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
 }
 
+/* Clean back-arrow button */
 .chat-back-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
+  justify-content: center;
+  width: 36px;
+  height: 36px;
   background: none;
-  padding: 6px 12px;
+  border: none;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.chat-back-btn:hover { background: var(--bg-card); color: var(--text-primary); }
+
+/* Room title: character names */
+.chat-room-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
 }
 
-.chat-back-btn:hover {
+.chat-room-chars {
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text-primary);
-  background: var(--bg-card);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.chat-room-info h2 {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1.2;
-}
-
-.chat-room-meta {
-  font-size: 12px;
+.chat-branch-indicator {
+  font-size: 11px;
   color: var(--text-muted);
-  margin-top: 2px;
+  flex-shrink: 0;
 }
+
+/* Small icon button used in the chat header */
+.chat-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+  flex-shrink: 0;
+  padding: 0;
+}
+.chat-icon-btn:hover:not(:disabled) { background: var(--bg-card); color: var(--text-primary); }
+.chat-icon-btn:disabled { opacity: 0.55; cursor: default; }
+.chat-icon-btn.share-state-copied,
+.chat-icon-btn.share-state-shared { border-color: var(--success); color: var(--success); }
 
 .chat-header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
-}
-
-.room-code-badge {
-  display: flex;
-  align-items: center;
   gap: 8px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 6px 14px;
+  flex-shrink: 0;
 }
 
-.room-code-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.room-code-value {
-  font-size: 14px;
-  font-weight: 800;
-  color: var(--accent);
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  letter-spacing: 2px;
-}
-
-.copy-btn {
-  font-size: 12px;
-  color: var(--text-muted);
-  background: none;
-  padding: 2px 4px;
-}
-
-.copy-btn:hover {
-  color: var(--text-secondary);
-}
-
+/* Legacy share-btn (kept for compatibility) */
 .share-btn {
   display: flex;
   align-items: center;
@@ -920,24 +919,7 @@ input {
   transition: var(--transition);
   white-space: nowrap;
 }
-
-.share-btn:hover {
-  background: var(--bg-card-hover);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.share-btn-copied {
-  background: rgba(46, 213, 115, 0.12);
-  border-color: var(--success);
-  color: var(--success);
-}
-
-.share-btn-copied:hover {
-  background: rgba(46, 213, 115, 0.18);
-  border-color: var(--success);
-  color: var(--success);
-}
+.share-btn:hover { background: var(--bg-card-hover); border-color: var(--accent); color: var(--accent); }
 
 .chat-participants {
   display: flex;
@@ -1341,13 +1323,8 @@ input {
   }
 
   .chat-header {
-    flex-wrap: wrap;
-    gap: 10px;
-    padding: 12px 14px;
-  }
-
-  .room-code-badge {
-    padding: 5px 10px;
+    gap: 8px;
+    padding: 10px 12px;
   }
 
   .chat-participants {
@@ -4983,6 +4960,67 @@ input {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   CHAT — CONTEXT MESSAGES (carried-over messages from parent branch room)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Wrapper for a context (read-only, carried-over) message */
+.message-context {
+  opacity: 0.72;
+  pointer-events: none; /* not selectable / not branchable */
+  border-left: 3px solid var(--border);
+  padding-left: 10px;
+  margin-left: 4px;
+}
+.message-context.message-context-user {
+  align-self: flex-end;
+  border-left: none;
+  border-right: 3px solid var(--border);
+  padding-left: 0;
+  padding-right: 10px;
+  margin-left: 0;
+  margin-right: 4px;
+  text-align: right;
+}
+
+.msg-ctx-avatar {
+  width: 22px !important;
+  height: 22px !important;
+  font-size: 10px !important;
+}
+
+.msg-ctx-bubble {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: 2px 0 4px;
+  word-break: break-word;
+  max-width: 80%;
+}
+.message-context-user .msg-ctx-bubble {
+  margin-left: auto;
+  text-align: right;
+}
+
+/* Divider shown in the messages list between context and new conversation */
+.msg-context-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: italic;
+}
+.msg-context-divider::before,
+.msg-context-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    CHAT — FOUNDING CONTEXT (branch rooms)
    ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -5558,9 +5596,9 @@ input {
 
 .weaver-thread-area {
   position: absolute;
-  /* top clears wordmark; bottom clears input + nav */
+  /* top clears wordmark; bottom clears input (54px) + nav (64px) + gap (12px) + safe area */
   top: 52px;
-  bottom: calc(164px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(130px + max(0px, env(safe-area-inset-bottom)));
   left: 0;
   right: 0;
   z-index: 10;
@@ -5662,7 +5700,8 @@ input {
 
 .weaver-input-bar {
   position: absolute;
-  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  /* sits directly above the nav bar; nav is ~64px + safe area */
+  bottom: calc(64px + max(0px, env(safe-area-inset-bottom)));
   left: 12px;
   right: 12px;
   z-index: 15;
@@ -5724,7 +5763,7 @@ input {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── Persistent navigation ── */
+/* ── Persistent navigation (icon-only) ── */
 
 .weaver-nav {
   position: absolute;
@@ -5734,59 +5773,54 @@ input {
   z-index: 15;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 12px 16px;
-  padding-bottom: max(16px, env(safe-area-inset-bottom));
-  background: linear-gradient(transparent, rgba(250, 248, 244, 0.95) 40%);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  justify-content: center;
+  gap: 16px;
+  padding: 10px 24px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, rgba(250, 248, 244, 0.96) 40%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .weaver-nav-btn {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 3px;
-  padding: 8px 20px;
-  min-width: 90px;
-  min-height: 50px;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
   background: rgba(0, 0, 0, 0.04);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: 50%;
   color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
+  flex-shrink: 0;
 }
-.weaver-nav-btn:hover  { background: rgba(0, 0, 0, 0.07); }
-.weaver-nav-btn:active { background: rgba(0, 0, 0, 0.11); }
+.weaver-nav-btn:hover  { background: rgba(0, 0, 0, 0.08); color: var(--text-primary); }
+.weaver-nav-btn:active { background: rgba(0, 0, 0, 0.12); }
 
 /* Returning user: My Chats is more prominent */
 .weaver-nav-prominent {
   background: rgba(74, 92, 58, 0.10);
-  border-color: rgba(74, 92, 58, 0.28);
+  border-color: rgba(74, 92, 58, 0.30);
   color: var(--accent);
 }
-.weaver-nav-prominent:hover { background: rgba(74, 92, 58, 0.16); }
+.weaver-nav-prominent:hover { background: rgba(74, 92, 58, 0.16); color: var(--accent-hover); }
 
-/* Create Room centre button */
+/* Create Room — slightly larger, accent fill */
 .weaver-nav-create {
-  background: rgba(0, 0, 0, 0.05);
-  border-color: var(--border);
+  width: 52px;
+  height: 52px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
-.weaver-nav-create:hover  { background: rgba(0, 0, 0, 0.08); }
-.weaver-nav-create:active { background: rgba(0, 0, 0, 0.12); }
-
-.weaver-nav-icon {
-  font-size: 18px;
-  line-height: 1;
-}
+.weaver-nav-create:hover  { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
+.weaver-nav-create:active { background: var(--accent-hover); }
 
 /* ── Responsive ── */
 
 @media (max-width: 375px) {
-  .weaver-nav-btn  { min-width: 68px; padding: 7px 10px; font-size: 10px; }
-  .weaver-nav-icon { font-size: 16px; }
-  .weaver-thread-area { bottom: calc(155px + env(safe-area-inset-bottom, 0px)); }
+  .weaver-nav { gap: 12px; }
+  .weaver-nav-btn { width: 44px; height: 44px; }
+  .weaver-nav-create { width: 48px; height: 48px; }
+  .weaver-thread-area { bottom: calc(120px + max(0px, env(safe-area-inset-bottom))); }
 }

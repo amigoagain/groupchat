@@ -15,6 +15,7 @@ const GraphScreen = React.lazy(() => import('./components/GraphScreen.jsx'))
 import UsernameModal from './components/UsernameModal.jsx'
 import { hasApiKey } from './services/claudeApi.js'
 import { loadRoom, createRoom, diagnoseSupabase, incrementParticipantCount } from './utils/roomUtils.js'
+import { insertMessages } from './utils/messageUtils.js'
 import { hasUsername, setUsername, getUsername } from './utils/username.js'
 import { markRoomVisited, markAllSeen } from './utils/inboxUtils.js'
 import { useAuth } from './contexts/AuthContext.jsx'
@@ -181,19 +182,41 @@ export default function App() {
 
   /**
    * Called by BranchConfig when the user confirms the branch.
-   * Creates a new branch room and navigates to it.
+   * Creates a new branch room, inserts the founding messages as visible
+   * context (with isContext flag so they don't trigger AI responses),
+   * then navigates into the new room.
    *
    * @param {{ selectedChars, roomName, visibility, branchData }} config
    */
   const handleBranchConfirm = async ({ selectedChars, roomName, visibility, branchData }) => {
     const room = await createRoom(
-      selectedMode || { id: 'chat', name: 'Chat', icon: '💬', modeContext: '' },
+      selectedMode || { id: 'discuss', name: 'Discuss', icon: '🗣', modeContext: '' },
       selectedChars,
       displayName,
       isAuthenticated ? userId : null,
       visibility,
       branchData,
     )
+
+    // Insert the founding messages as visible context at the top of the new room.
+    // metadata.isContext = true prevents them from being included in AI conversation history.
+    if (branchData?.foundingContext?.length > 0 && room.id) {
+      const parentCode = currentRoom?.code || null
+      const ctxMsgs = branchData.foundingContext.map(m => ({
+        type:             m.sender_type === 'character' ? 'character' : 'user',
+        content:          m.content,
+        characterName:    m.characterName || m.sender_name || null,
+        characterColor:   m.characterColor || m.sender_color || null,
+        characterInitial: m.characterInitial || m.sender_initial || null,
+        characterId:      m.sender_id || null,
+        senderName:       m.senderName || m.sender_name || 'User',
+        userId:           null,
+        isError:          false,
+        metadata:         { isContext: true, fromRoomCode: parentCode },
+      }))
+      await insertMessages(ctxMsgs, room.id)
+    }
+
     setBranchConfigData(null)
     setCurrentRoom(room)
     markRoomVisited(room.code)
@@ -220,8 +243,9 @@ export default function App() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="app">
-      {/* Persistent Kepos mark — tap to return to entry screen */}
-      {screen !== 'weaver' && screen !== 'loading' && !needsUsername && (
+      {/* Persistent Kepos mark — tap to return to entry screen.
+          Hidden in chat (back arrow handles navigation) and weaver/loading. */}
+      {screen !== 'weaver' && screen !== 'loading' && screen !== 'chat' && !needsUsername && (
         <button className="kepos-mark" onClick={handleBackToStart} title="Return to Kepos">
           kepos
         </button>

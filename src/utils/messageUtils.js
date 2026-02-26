@@ -28,6 +28,7 @@ export function rowToMessage(row) {
     characterColor:   row.sender_color  || undefined,
     characterInitial: row.sender_initial || undefined,
     isError:          row.is_error || false,
+    isContext:        !!(row.metadata?.isContext),  // carried-over branch founding message
     timestamp:        row.created_at,
     sequenceNumber:   row.sequence_number,
     metadata:         row.metadata || null,

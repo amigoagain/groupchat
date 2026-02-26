@@ -264,7 +264,50 @@ export async function generateInviteMessage(username, characters, messages) {
 }
 
 /**
+ * Generate a rich, full character record for a given name.
+ * Used by the Gardener auto-creation flow.
+ * Returns { title, personality, color, tags, category }.
+ */
+export async function generateFullCharacterRecord(personName) {
+  const systemPrompt =
+    `You are a character designer for Kepos, an AI group-chat platform where users converse with ` +
+    `historical figures, philosophers, scientists, authors, and notable personas. ` +
+    `When given a person's name, you write a complete, vivid character profile that captures their ` +
+    `distinctive voice, era, intellectual framework, and communication style.`
+
+  const userPrompt =
+    `Generate a full character profile for: "${personName}"\n\n` +
+    `Return ONLY valid JSON (no markdown fences, no explanation before or after):\n` +
+    `{\n` +
+    `  "title": "2-5 word descriptor (e.g. 'Father of Genetics', 'Existentialist Philosopher')",\n` +
+    `  "personality": "180-250 word system prompt in second person. Start with 'You are NAME (years if applicable).' Include: their historical era and context, their signature communication style and intellectual habits, their core ideas and what they believed most deeply, how they engage with opposing views, and distinctive mannerisms or rhetorical patterns. End with one sentence on how they approach group conversation.",\n` +
+    `  "color": "A meaningful hex color. Warm earthy tones for historians/naturalists, cool blues for scientists, deep greens for biologists/ecologists, warm reds for revolutionaries/activists, purples for mystics/philosophers, amber for economists/polymaths.",\n` +
+    `  "tags": ["2-5 relevant domain tags, lowercase, e.g. biology, philosophy, revolution, economics"],\n` +
+    `  "category": "one of: philosophy, science, politics, arts, literature, history, religion, economics, technology"\n` +
+    `}\n\n` +
+    `If the person is obscure or fictional, produce a plausible profile based on available information.`
+
+  const text = await callAnthropicAPI(systemPrompt, [{ role: 'user', content: userPrompt }], 2, null, 800)
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('Could not parse generated full character record.')
+
+  const parsed = JSON.parse(jsonMatch[0])
+  if (!parsed.title || !parsed.personality || !parsed.color) {
+    throw new Error('Incomplete full character record returned.')
+  }
+
+  return {
+    title:       parsed.title.trim(),
+    personality: parsed.personality.trim(),
+    color:       /^#[0-9a-fA-F]{6}$/.test(parsed.color) ? parsed.color : '#4A5C3A',
+    tags:        Array.isArray(parsed.tags) ? parsed.tags.slice(0, 5) : [],
+    category:    parsed.category || 'history',
+  }
+}
+
+/**
  * Generate a character profile for a given person/concept name.
+ * Lightweight version — returns { title, personality, color }.
  */
 export async function generateCharacterProfile(personName) {
   const systemPrompt =
