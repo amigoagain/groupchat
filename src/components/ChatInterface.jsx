@@ -4,6 +4,7 @@ import TypingIndicator from './TypingIndicator.jsx'
 import UsernameModal from './UsernameModal.jsx'
 import { getCharacterResponse, generateInviteMessage } from '../services/claudeApi.js'
 import { routeMessage, formatRoutingNotice } from '../services/weaverRouter.js'
+import { fetchOrCreateMemory, runGardenerRouter, updateGardenerMemory } from '../services/gardenerMemory.js'
 import { isSupabaseConfigured } from '../lib/supabase.js'
 import { insertMessage, fetchMessages, fetchMessagesAfter } from '../utils/messageUtils.js'
 import { saveRoom, ensureParticipant, getMyRole, listParticipants, setParticipantRole, fetchRoomAncestors } from '../utils/roomUtils.js'
@@ -183,13 +184,48 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
 
-    const routing = await routeMessage(text, room.characters, conversationSnapshot, controller.signal)
-    const notice  = formatRoutingNotice(routing)
+    // Fetch Gardener memory and run Weaver routing in parallel — both are
+    // needed before we can call the Gardener Router.
+    const [routing, memory] = await Promise.all([
+      routeMessage(text, room.characters, conversationSnapshot, controller.signal),
+      fetchOrCreateMemory(room.id || null),
+    ])
+
+    const notice = formatRoutingNotice(routing)
     if (notice) setRoutingNotice(notice)
+
+    // ── Gardener Router ───────────────────────────────────────────────────────
+    // Runs as a distinct haiku call. Returns a routing plan that may restrict
+    // or re-weight the Weaver's character list.
+    // Silence is architectural: characters not in the plan are never invoked.
+    const routerPlan = await runGardenerRouter(text, room.characters, memory)
+
+    // Apply the Gardener Router's plan to the Weaver's respondingCharacters list.
+    // The Router can only restrict (remove / silence), not expand.
+    // If the Router fails (null), fall back to the Weaver list unchanged.
+    let respondingCharacters = routing.respondingCharacters
+    if (routerPlan && Array.isArray(routerPlan.routing)) {
+      // Build a lookup: character name (lowercase) → plan entry
+      const planByName = Object.fromEntries(
+        routerPlan.routing.map(r => [r.character.toLowerCase(), r])
+      )
+      respondingCharacters = routing.respondingCharacters
+        .filter(char => {
+          const entry = planByName[char.name.toLowerCase()]
+          // Unknown to the plan → keep (safety); known → only if respond: true
+          return entry ? entry.respond !== false : true
+        })
+        .map(char => {
+          const entry = planByName[char.name.toLowerCase()]
+          // Carry the Router's mode into responseWeight
+          const weight = entry?.mode === 'brief' ? 'brief' : 'full'
+          return { ...char, responseWeight: weight }
+        })
+    }
 
     const precedingResponses = []
 
-    for (const character of routing.respondingCharacters) {
+    for (const character of respondingCharacters) {
       if (cancelledRef.current) break
       setTypingCharacter(character)
 
@@ -257,6 +293,10 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     setRoutingNotice(null)
     cancelledRef.current = false
     sendLockRef.current = false
+
+    // Fire-and-forget Gardener Memory update.
+    // Runs after responses are already displayed — never blocks the user.
+    updateGardenerMemory(text, precedingResponses, memory, room.id || null, room.characters, room.mode)
 
     saveRoom(room.code, { ...room })
     onUpdateRoom({ ...room })
