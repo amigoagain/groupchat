@@ -82,6 +82,7 @@ function defaultMemory() {
       framework_convergence: false,
     },
     conversation_spine: '',
+    last_signal_turn:   0,
   }
 }
 
@@ -144,7 +145,7 @@ RULE 2 — GENERAL MESSAGES:
 Assess genuine relevance. A character is relevant if their intellectual framework speaks directly to this specific message. Not merely "they could say something" — they have something their framework uniquely contributes.
 
 RULE 3 — PHASE-AWARE PACING:
-- opening phase (turn_count 0–4): max 2 characters respond; prefer 'brief' mode; do not let all characters fire at full length every turn
+- opening phase (turn_count 0–4): max 2 characters respond; ALL responding characters MUST be 'brief' — do not set any character to 'full' until Memory phase transitions to 'middle'. Brief means three sentences maximum, no exceptions.
 - middle phase (turn_count 5–15): up to 3 characters can respond; mix 'full' and 'brief' based on genuine relevance
 - late phase (turn_count > 15): allow 'full' responses where framework is directly engaged
 
@@ -228,11 +229,11 @@ PHASE: Determine from turn_count:
 - "middle":   turn_count 5–15
 - "late":     turn_count > 15
 
-PLANTING_SIGNAL_CONDITIONS — set each boolean based on this turn:
-- unresolved_tension:    genuine opposing frameworks in play that have not resolved into agreement
-- user_created_space:    user message was an open question or observation that invited rather than directed
-- genuine_surprise:      a character response shifted the conversation in an unpredictable direction
-- framework_convergence: two or more characters arriving at the same insight from different frameworks
+PLANTING_SIGNAL_CONDITIONS — set each boolean based on this turn. These bars are HIGH. Default is false for all. Only set true when the condition is unambiguously met.
+- unresolved_tension:    genuine opposing frameworks in play with a SPECIFIC named point of disagreement that has not resolved. Vague "different approaches" or "different perspectives" does not count. The seam must be specific and nameable.
+- user_created_space:    user's message is notably SHORT or OPEN relative to their PREVIOUS messages in this conversation — a genuine pause, a name alone, a single word, a short open question. A normal-length message does not qualify even if it is phrased as a question.
+- genuine_surprise:      a character EXPLICITLY CONTRADICTED or significantly revised a position they or another character held earlier in THIS SAME conversation — not just said something interesting or unexpected. There must be a specific prior position that was revised or overturned.
+- framework_convergence: two or more characters arriving at the SAME SPECIFIC insight from demonstrably DIFFERENT starting frameworks — not just agreeing generally, but converging on an identical conclusion through distinct intellectual routes.
 
 INTERVENTION_LOG: Pass through any existing entries unchanged. Add a new entry only if a character showed significant drift (score > 6) that would warrant a Gardener reanchoring.
 
@@ -293,6 +294,9 @@ export async function updateGardenerMemory(
     // Authoritative turn count: always increment from what we know, ignore model's arithmetic
     updated.turn_count = (currentMemory.turn_count || 0) + 1
 
+    // Carry forward last_signal_turn — the haiku model doesn't know this field
+    updated.last_signal_turn = currentMemory.last_signal_turn || 0
+
     console.log('[Memory] turn:', updated.turn_count, '| phase:', updated.conversation_phase)
     console.log('[Memory] spine:', updated.conversation_spine)
     console.log('[Memory] conditions:', updated.planting_signal_conditions)
@@ -310,9 +314,22 @@ export async function updateGardenerMemory(
       return
     }
 
-    // Check planting signal threshold: 2 or more conditions simultaneously true
-    const conditions  = updated.planting_signal_conditions || {}
-    const trueCount   = Object.values(conditions).filter(Boolean).length
+    // Gate 1: minimum turn depth — no planting signals before turn 8
+    if (updated.turn_count < 8) {
+      console.log('[Memory] planting signal suppressed — turn', updated.turn_count, '< 8')
+      return
+    }
+
+    // Gate 2: rate limit — no signal within 10 turns of the last one
+    const turnsSinceLast = updated.turn_count - (currentMemory.last_signal_turn || 0)
+    if (turnsSinceLast < 10) {
+      console.log('[Memory] planting signal suppressed —', turnsSinceLast, 'turns since last signal (min 10)')
+      return
+    }
+
+    // Gate 3: condition threshold — ≥2 conditions simultaneously true
+    const conditions = updated.planting_signal_conditions || {}
+    const trueCount  = Object.values(conditions).filter(Boolean).length
     if (trueCount >= 2) {
       _logPlantingSignalFromMemory(updated, roomId, allCharacters, mode)
     }
@@ -353,6 +370,15 @@ function _logPlantingSignalFromMemory(memory, roomId, allCharacters, mode) {
     .then(({ error }) => {
       if (error) console.warn('[Memory] planting_signals insert error:', error.message)
       else console.log('[Memory] Planting signal logged — conditions:', active.join(' + '))
+    })
+
+  // Record the turn so the rate limit blocks the next 10 turns
+  supabase
+    .from('gardener_memory')
+    .update({ last_signal_turn: memory.turn_count, updated_at: new Date().toISOString() })
+    .eq('room_id', roomId)
+    .then(({ error }) => {
+      if (error) console.warn('[Memory] last_signal_turn update error:', error.message)
     })
 }
 

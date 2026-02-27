@@ -10,11 +10,13 @@ import { insertMessage, fetchMessages, fetchMessagesAfter } from '../utils/messa
 import { saveRoom, ensureParticipant, getMyRole, listParticipants, setParticipantRole, fetchRoomAncestors } from '../utils/roomUtils.js'
 import { getUsername, setUsername } from '../utils/username.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
+import { useDevMode } from '../contexts/DevModeContext.jsx'
 
 const POLL_INTERVAL_MS = 3000
 
 export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranchConfig }) {
   const { isAuthenticated, username: authUsername, userId } = useAuth()
+  const { routerEnabled, memoryEnabled, gardenerEnabled } = useDevMode()
 
   const [messages,        setMessages]        = useState([])
   const [input,           setInput]           = useState('')
@@ -24,6 +26,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   const [routingNotice,   setRoutingNotice]   = useState(null) // internal only, not rendered
   const [shareState,      setShareState]      = useState('idle')
   const [showRenameModal, setShowRenameModal] = useState(false)
+  const [copyState,       setCopyState]       = useState('idle') // 'idle' | 'copied'
 
   // ── Participant management ─────────────────────────────────────────────────
   const [showParticipants,  setShowParticipants]  = useState(false)
@@ -186,9 +189,10 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
     // Fetch Gardener memory and run Weaver routing in parallel — both are
     // needed before we can call the Gardener Router.
+    // Dev toggles: memoryEnabled gates memory fetch; routerEnabled gates Router call.
     const [routing, memory] = await Promise.all([
       routeMessage(text, room.characters, conversationSnapshot, controller.signal),
-      fetchOrCreateMemory(room.id || null),
+      memoryEnabled ? fetchOrCreateMemory(room.id || null) : Promise.resolve(null),
     ])
 
     const notice = formatRoutingNotice(routing)
@@ -198,7 +202,10 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     // Runs as a distinct haiku call. Returns a routing plan that may restrict
     // or re-weight the Weaver's character list.
     // Silence is architectural: characters not in the plan are never invoked.
-    const routerPlan = await runGardenerRouter(text, room.characters, memory)
+    // Dev toggle: when routerEnabled is false, skip the Router call entirely.
+    const routerPlan = routerEnabled
+      ? await runGardenerRouter(text, room.characters, memory)
+      : null
 
     // Apply the Gardener Router's plan to the Weaver's respondingCharacters list.
     // The Router can only restrict (remove / silence), not expand.
@@ -243,6 +250,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
           room.foundingContext || null,
           room.id || null,
           lastSeq,
+          gardenerEnabled,   // dev toggle: when false, skip Gardener prompt layer
         )
 
         if (cancelledRef.current) break
@@ -296,7 +304,10 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
     // Fire-and-forget Gardener Memory update.
     // Runs after responses are already displayed — never blocks the user.
-    updateGardenerMemory(text, precedingResponses, memory, room.id || null, room.characters, room.mode)
+    // Dev toggle: when memoryEnabled is false, skip entirely.
+    if (memoryEnabled && memory) {
+      updateGardenerMemory(text, precedingResponses, memory, room.id || null, room.characters, room.mode)
+    }
 
     saveRoom(room.code, { ...room })
     onUpdateRoom({ ...room })
@@ -336,6 +347,50 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     if (newName) setUsername(newName)
     setShowRenameModal(false)
   }
+
+  // ── Copy whole chat transcript ─────────────────────────────────────────────
+  const handleCopyChat = useCallback(async () => {
+    const msgs = messagesRef.current.filter(m => !m.isContext)
+    if (msgs.length === 0) return
+
+    const charNames = room.characters.map(c => c.name).join(', ')
+    const now       = new Date().toLocaleString()
+    const gardenerState = [
+      `Router ${routerEnabled   ? 'ON' : 'OFF'}`,
+      `Memory ${memoryEnabled   ? 'ON' : 'OFF'}`,
+      `Gardener prompt ${gardenerEnabled ? 'ON' : 'OFF'}`,
+    ].join(' | ')
+
+    const header = [
+      '--- Kepos Room Transcript ---',
+      `Room: ${room.name || room.code}`,
+      `Characters: ${charNames}`,
+      `Date: ${now}`,
+      `Gardener state: ${gardenerState}`,
+      '---',
+    ].join('\n')
+
+    const body = msgs.map(m => {
+      const ts = m.timestamp
+        ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : '--:--'
+      const sender = m.type === 'user'
+        ? (m.senderName || 'User')
+        : (m.characterName || 'Character')
+      return `[${ts}] ${sender}: ${m.content}`
+    }).join('\n')
+
+    const footer = '\n--- End Transcript ---'
+    const transcript = `${header}\n${body}${footer}`
+
+    try {
+      await navigator.clipboard.writeText(transcript)
+      setCopyState('copied')
+      setTimeout(() => setCopyState('idle'), 2000)
+    } catch (err) {
+      console.warn('[CopyChat] clipboard write failed:', err)
+    }
+  }, [room, routerEnabled, memoryEnabled, gardenerEnabled])
 
   const handleInputChange = (e) => {
     setInput(e.target.value)
@@ -489,6 +544,22 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
               <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
             </svg>
+          </button>
+
+          {/* Copy transcript */}
+          <button
+            className={`chat-float-btn${copyState === 'copied' ? ' share-active' : ''}`}
+            onClick={handleCopyChat}
+            title="Copy chat transcript"
+            aria-label="Copy chat"
+          >
+            {copyState === 'copied'
+              ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+            }
           </button>
 
           {/* Share — with live sync dot */}

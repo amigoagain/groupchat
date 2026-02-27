@@ -14,6 +14,7 @@ import WeaverEntryScreen from './components/WeaverEntryScreen.jsx'
 // global AFRAME object that isn't present in our Vite ESM build).
 const GraphScreen = React.lazy(() => import('./components/GraphScreen.jsx'))
 import UsernameModal from './components/UsernameModal.jsx'
+import DevPanel from './components/DevPanel.jsx'
 import { hasApiKey } from './services/claudeApi.js'
 import { loadRoom, createRoom, diagnoseSupabase, incrementParticipantCount } from './utils/roomUtils.js'
 import { insertMessages } from './utils/messageUtils.js'
@@ -260,6 +261,9 @@ export default function App() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="app">
+      {/* Dev banner — visible only to the dev user, above all other UI */}
+      <DevPanel />
+
       {/* Persistent Kepos mark — tap to return to entry screen.
           Hidden in chat, weaver, loading, branch-config, and password-reset screens. */}
       {screen !== 'weaver' && screen !== 'loading' && screen !== 'chat' &&

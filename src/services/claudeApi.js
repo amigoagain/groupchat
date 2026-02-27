@@ -35,27 +35,41 @@ function buildApiMessages(previousMessages, characterId, currentUserMessage, pre
   const apiMessages = []
 
   for (const round of rounds) {
-    const myResponse    = round.responses.find(r => r.characterId === characterId)
-    if (!myResponse) continue
+    // Skip empty rounds (no character responses at all — edge case)
+    if (round.responses.length === 0) continue
+
+    const myResponse      = round.responses.find(r => r.characterId === characterId)
     const othersResponses = round.responses.filter(r => r.characterId !== characterId)
 
+    // Always include every round so each character sees the full conversation history.
+    // Previously, rounds where this character didn't respond were silently skipped —
+    // this caused characters to have no awareness of exchanges they weren't part of.
     let userContent = round.userContent
     if (othersResponses.length > 0) {
       userContent +=
         '\n\n[Other participants in this conversation also responded:\n' +
-        othersResponses.map(r => `• ${r.characterName}: "${r.content}"`).join('\n') +
+        othersResponses.map(r => `• ${r.characterName}: "${r.content.slice(0, 120)}${r.content.length > 120 ? '…' : ''}"`).join('\n') +
         '\n]'
     }
-    apiMessages.push({ role: 'user',      content: userContent })
-    apiMessages.push({ role: 'assistant', content: myResponse.content })
+    apiMessages.push({ role: 'user', content: userContent })
+
+    if (myResponse) {
+      // This character spoke in this round — use their actual response
+      apiMessages.push({ role: 'assistant', content: myResponse.content })
+    } else {
+      // This character was silent in this round — include a placeholder to keep
+      // the alternating user/assistant format required by the Anthropic API, and
+      // to signal to the model that it was present but did not participate.
+      apiMessages.push({ role: 'assistant', content: '[I was present in this exchange but did not respond.]' })
+    }
   }
 
   let currentContent = currentUserMessage
   if (precedingResponses.length > 0) {
     currentContent +=
       '\n\n[Other participants have already responded to this message:\n' +
-      precedingResponses.map(r => `• ${r.characterName}: "${r.content}"`).join('\n') +
-      '\n\nPlease acknowledge their points and add your unique perspective.]'
+      precedingResponses.map(r => `• ${r.characterName}: "${r.content.slice(0, 100)}${r.content.length > 100 ? '…' : ''}"`).join('\n') +
+      '\n\nDo NOT repeat, restate, or paraphrase what they said. Respond in your own voice with your own distinct perspective only. Their words are context, not content for you to reproduce.]'
   }
   apiMessages.push({ role: 'user', content: currentContent })
 
@@ -150,7 +164,13 @@ What did the user actually ask or bring? Is that question still live? If the ori
 4. IS THE PACE RIGHT FOR THE PHASE?
 The conversation has phases. Read which phase it is in and calibrate accordingly.
 
-Opening phase: The room is orienting. Characters should be curious before they are confident. They should ask genuine questions — not rhetorical ones, not Socratic traps, but actual curiosity about what the user means and what the conversation will be. Characters should not frontload their full theoretical apparatus. The opening phase ends when something real has been established — a question the user actually cares about, a tension that emerged from what was said rather than what was prepared.
+Opening phase: HARD CAP — 1 to 3 sentences maximum. No exceptions. A response longer than 3 sentences in the opening phase is a protocol violation and you must enforce it.
+
+In opening, characters are orienting, not performing. They acknowledge the room and the other characters present. They do not deploy their intellectual framework. They do not open with their signature position. They do not make claims that require the full weight of their theoretical system to justify. They may ask one genuine question — not rhetorical, not Socratic, not a trap — or make one brief observation. Then they stop.
+
+The opening phase ends when two conditions are simultaneously true: (1) the user has made at least two substantive contributions, and (2) genuine tension has emerged from what was actually said — not from what the characters were prepared to say. Until both conditions are met, the hard cap holds.
+
+OPENING PHASE RESPONSE CONSTRAINT: In the opening phase of a conversation (turns 1–3), every character response must be three sentences or fewer. Sentences must be short and direct — no multi-clause constructions, no extended metaphors, no front-loaded theoretical frameworks. Characters in the opening phase should be curious before they are declarative. A character who has just entered a room does not yet know what the user actually wants. They should orient, not perform. The full framework emerges in response to something real, not before it.
 
 Middle phase: Frameworks engage. Characters press on each other. Friction is productive here. Convergence should be earned, not performed.
 
@@ -387,14 +407,26 @@ export async function getCharacterResponse(
   foundingContext     = null,
   roomId              = null,
   lastSequenceNumber  = null,
+  useGardenerPrompt   = true,
 ) {
-  const gardenerPrompt  = buildGardenerPrompt(allCharacters)
   const characterPrompt = buildSystemPrompt(character, mode, allCharacters, responseWeight, foundingContext)
 
   // Anthropic API accepts a single `system` parameter — concatenate with a clear separator.
-  const fullSystemPrompt = `${gardenerPrompt}\n\n---\n\nYOU ARE NOW ACTING AS THE FOLLOWING CHARACTER:\n\n${characterPrompt}`
+  // When useGardenerPrompt is false (dev mode), skip governance layer entirely.
+  const fullSystemPrompt = useGardenerPrompt
+    ? `${buildGardenerPrompt(allCharacters)}\n\n---\n\nYOU ARE NOW ACTING AS THE FOLLOWING CHARACTER:\n\n${characterPrompt}`
+    : characterPrompt
 
   const messages = buildApiMessages(previousMessages, character.id, currentUserMessage, precedingResponses)
+
+  // DIAGNOSTIC — log full conversation context passed to each character invocation.
+  // Verifies history assembly is correct: every prior user + character turn should appear.
+  console.log(`[History] ${character.name} | ${messages.length} msg(s) in context window`)
+  messages.forEach((m, i) => {
+    const preview = m.content.slice(0, 100).replace(/\n/g, ' ')
+    console.log(`  [${i}] ${m.role}: ${preview}${m.content.length > 100 ? '…' : ''}`)
+  })
+
   const rawText  = await callAnthropicAPI(fullSystemPrompt, messages, 3, signal)
 
   // ── Strip PLANTING_SIGNAL and log it asynchronously ──────────────────────
