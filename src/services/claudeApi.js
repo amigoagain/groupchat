@@ -164,13 +164,15 @@ What did the user actually ask or bring? Is that question still live? If the ori
 4. IS THE PACE RIGHT FOR THE PHASE?
 The conversation has phases. Read which phase it is in and calibrate accordingly.
 
-Opening phase: HARD CAP — 1 to 3 sentences maximum. No exceptions. A response longer than 3 sentences in the opening phase is a protocol violation and you must enforce it.
+Opening phase: HARD CAP — 3 sentences maximum. A response longer than 3 sentences in the opening phase is a protocol violation.
 
-In opening, characters are orienting, not performing. They acknowledge the room and the other characters present. They do not deploy their intellectual framework. They do not open with their signature position. They do not make claims that require the full weight of their theoretical system to justify. They may ask one genuine question — not rhetorical, not Socratic, not a trap — or make one brief observation. Then they stop.
+Characters in the opening phase do not pre-orient to each other. They have just been introduced by proximity — they are strangers. Darwin has not read Aurelius. Aurelius has not read Duncan. What they share, where they diverge, what unexpectedly connects them — all of that is discovered through the conversation, not assumed in advance. Characters must not reference each other's frameworks or bodies of work in opening turns.
+
+Opening path detection routes the opening posture:
+- ARRIVAL path (user opens with a greeting or casual message): characters acknowledge and continue their own thought. No questions directed at the user. The user decides when the conversation begins.
+- DELIBERATE path (user opens with a specific question or topic): characters engage with the substance briefly. Still 3 sentences maximum.
 
 The opening phase ends when two conditions are simultaneously true: (1) the user has made at least two substantive contributions, and (2) genuine tension has emerged from what was actually said — not from what the characters were prepared to say. Until both conditions are met, the hard cap holds.
-
-OPENING PHASE RESPONSE CONSTRAINT: In the opening phase of a conversation (turns 1–3), every character response must be three sentences or fewer. Sentences must be short and direct — no multi-clause constructions, no extended metaphors, no front-loaded theoretical frameworks. Characters in the opening phase should be curious before they are declarative. A character who has just entered a room does not yet know what the user actually wants. They should orient, not perform. The full framework emerges in response to something real, not before it.
 
 Middle phase: Frameworks engage. Characters press on each other. Friction is productive here. Convergence should be earned, not performed.
 
@@ -258,25 +260,40 @@ The garden grows at its own pace. Your job is to keep the conditions right — a
 /**
  * Build the system prompt for a character.
  *
- * @param {object}        character
- * @param {object}        mode
- * @param {array}         allCharacters
- * @param {'full'|'brief'} responseWeight   — from the Weaver
- * @param {array|null}    foundingContext   — messages that seeded a branch room
+ * The Gardener's awareness stays in the Gardener layer (routing decisions,
+ * mode assignments). It does not travel into character context as text.
+ * Characters receive only: their own identity, the conversation history,
+ * a mode-length constraint, and an opening-path posture if on the first turn.
+ * No governance language. No phase meta-commentary. No Gardener register.
+ *
+ * @param {object}               character
+ * @param {object}               mode
+ * @param {array}                allCharacters
+ * @param {'full'|'brief'}       responseWeight   — from the Router
+ * @param {array|null}           foundingContext  — messages that seeded a branch room
+ * @param {'arrival'|'deliberate'|null} openingPath — from Router opening detection
  */
-function buildSystemPrompt(character, mode, allCharacters, responseWeight = 'full', foundingContext = null) {
+function buildSystemPrompt(character, mode, allCharacters, responseWeight = 'full', foundingContext = null, openingPath = null) {
   const otherChars = allCharacters
     .filter(c => c.id !== character.id)
     .map(c => `• ${c.name} (${c.title})`)
     .join('\n')
 
-  // Weaver response-weight instruction
-  let weightInstruction = ''
+  // Mode constraint — clean instruction, no governance meta-language
+  let modeConstraint = ''
   if (responseWeight === 'brief') {
-    weightInstruction =
-      '\n\nGARDENER ROUTING — BRIEF RESPONSE: The Gardener has determined this topic is not your ' +
-      'primary domain. Respond in 1–2 sentences only. React and add a quick perspective, ' +
-      'but let others lead this exchange.'
+    modeConstraint = '\n\nRESPONSE LENGTH: 3 sentences maximum this turn.'
+  }
+
+  // Opening path constraint — posture for the very first exchange only.
+  // Arrival: someone showed up, acknowledge and continue your own thought.
+  // Deliberate: someone arrived with a specific question, engage with it.
+  // These constraints replace any instruction to question, orient, or perform.
+  let openingConstraint = ''
+  if (openingPath === 'arrival') {
+    openingConstraint = `\n\nOPENING POSTURE: The person who just arrived offered a greeting or casual opening — not a question, not a topic. Respond in kind. A brief acknowledgment, a word about what you were already turning over in your mind, or a simple welcome. Do not direct any question at them. Do not position yourself relative to the other people in the room — you are meeting them now for the first time and do not yet know their work or their thinking. You are mid-thought on your own walk. Acknowledge the arrival. Do not make the arrival the event.`
+  } else if (openingPath === 'deliberate') {
+    openingConstraint = `\n\nOPENING POSTURE: The person who arrived brought a specific question or topic. Engage with it directly and briefly — 3 sentences maximum. Respond from your own framework and perspective. You are meeting the other people in this room for the first time; do not reference their frameworks or position yourself relative to them. What you share or where you diverge with them will emerge from the conversation itself.`
   }
 
   // Branch founding context
@@ -291,20 +308,18 @@ function buildSystemPrompt(character, mode, allCharacters, responseWeight = 'ful
       contextLines
   }
 
-  return `${character.personality}${weightInstruction}${contextInstruction}
+  return `${character.personality}${modeConstraint}${openingConstraint}${contextInstruction}
 
 ${mode.modeContext}
 
-You are participating in a GROUP CONVERSATION with the following other AI characters:
+You are in a GROUP CONVERSATION with the following other participants:
 ${otherChars || '(You are the only participant)'}
 
-IMPORTANT GROUP DYNAMICS:
-- When other participants have already responded in this round, explicitly acknowledge and respond to their specific points — agree, disagree, build on, or challenge what they said.
-- Refer to other participants by name (e.g., "As Socrates pointed out..." or "I disagree with Elon here...").
-- Bring your unique perspective that no other character can offer.
-- Do NOT simply repeat what others said. Add genuine value.
-- Stay in character at all times.
-- Be concise and direct. Do not use headers, bullet points, or markdown formatting. Write in natural prose.`
+You are meeting these other participants for the first time. You do not know their work, their frameworks, or why you are sharing this space. What you have in common, where you diverge, what unexpectedly connects you — all of that is discovered here, through the conversation itself, not assumed in advance.
+
+When others have already responded in this exchange, you may briefly acknowledge what they said — but do not reference their intellectual frameworks or bodies of work as if you have already studied them. Stay in your own voice.
+
+Bring your unique perspective. Do not repeat what others said. Stay in character. Write in natural prose — no headers, no bullet points, no markdown formatting.`
 }
 
 // ── Core API call ─────────────────────────────────────────────────────────────
@@ -324,10 +339,6 @@ async function callAnthropicAPI(systemPrompt, messages, retries = 3, signal = nu
     if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
 
     try {
-      // TEMPORARY DIAGNOSTIC — remove before production
-      console.log('[GARDENER DEBUG] Full system prompt being sent:', systemPrompt)
-      console.log('[GARDENER DEBUG] System prompt character count:', systemPrompt.length)
-
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
@@ -408,19 +419,27 @@ export async function getCharacterResponse(
   roomId              = null,
   lastSequenceNumber  = null,
   useGardenerPrompt   = true,
+  openingPath         = null,
 ) {
-  const characterPrompt = buildSystemPrompt(character, mode, allCharacters, responseWeight, foundingContext)
-
-  // Anthropic API accepts a single `system` parameter — concatenate with a clear separator.
-  // When useGardenerPrompt is false (dev mode), skip governance layer entirely.
+  // The Gardener's awareness stays in the Gardener layer.
+  // Characters receive only their identity prompt + behavioral constraint for this turn.
+  //
+  // useGardenerPrompt (dev toggle):
+  //   true  → character prompt with routing-informed constraints (mode weight, opening path)
+  //   false → minimal: personality + mode context only, no routing constraints
   const fullSystemPrompt = useGardenerPrompt
-    ? `${buildGardenerPrompt(allCharacters)}\n\n---\n\nYOU ARE NOW ACTING AS THE FOLLOWING CHARACTER:\n\n${characterPrompt}`
-    : characterPrompt
+    ? buildSystemPrompt(character, mode, allCharacters, responseWeight, foundingContext, openingPath)
+    : buildSystemPrompt(character, mode, allCharacters, 'full', foundingContext, null)
+
+  // DIAGNOSTIC — verify system prompt contains no Gardener governance language.
+  // Should show only character identity, mode context, and targeted behavioral constraint.
+  console.log(`[SystemPrompt] ${character.name} | mode: ${responseWeight} | opening_path: ${openingPath ?? 'none'}`)
+  console.log(`[SystemPrompt] length: ${fullSystemPrompt.length} chars | first 200: ${fullSystemPrompt.slice(0, 200).replace(/\n/g, ' ')}…`)
 
   const messages = buildApiMessages(previousMessages, character.id, currentUserMessage, precedingResponses)
 
-  // DIAGNOSTIC — log full conversation context passed to each character invocation.
-  // Verifies history assembly is correct: every prior user + character turn should appear.
+  // DIAGNOSTIC — verify full conversation history is being passed.
+  // Every prior user + character turn should appear in alternating pairs.
   console.log(`[History] ${character.name} | ${messages.length} msg(s) in context window`)
   messages.forEach((m, i) => {
     const preview = m.content.slice(0, 100).replace(/\n/g, ' ')

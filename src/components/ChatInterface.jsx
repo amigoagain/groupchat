@@ -207,6 +207,10 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
       ? await runGardenerRouter(text, room.characters, memory)
       : null
 
+    // Extract opening_path from the Router plan for this turn.
+    // 'arrival' | 'deliberate' | null — shapes character posture on first turns.
+    const openingPath = routerPlan?.opening_path || null
+
     // Apply the Gardener Router's plan to the Weaver's respondingCharacters list.
     // The Router can only restrict (remove / silence), not expand.
     // If the Router fails (null), fall back to the Weaver list unchanged.
@@ -250,7 +254,8 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
           room.foundingContext || null,
           room.id || null,
           lastSeq,
-          gardenerEnabled,   // dev toggle: when false, skip Gardener prompt layer
+          gardenerEnabled,   // dev toggle: when false, skip opening/mode constraints
+          openingPath,       // 'arrival' | 'deliberate' | null from Router
         )
 
         if (cancelledRef.current) break
@@ -306,7 +311,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     // Runs after responses are already displayed — never blocks the user.
     // Dev toggle: when memoryEnabled is false, skip entirely.
     if (memoryEnabled && memory) {
-      updateGardenerMemory(text, precedingResponses, memory, room.id || null, room.characters, room.mode)
+      updateGardenerMemory(text, precedingResponses, memory, room.id || null, room.characters, room.mode, openingPath)
     }
 
     saveRoom(room.code, { ...room })

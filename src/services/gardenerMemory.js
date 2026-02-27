@@ -73,6 +73,7 @@ function defaultMemory() {
   return {
     conversation_phase:        'opening',
     turn_count:                0,
+    opening_path:              null,   // 'arrival' | 'deliberate' | null — set by Router on first turn
     character_drift:           {},
     intervention_log:          [],
     planting_signal_conditions: {
@@ -151,17 +152,29 @@ RULE 3 — PHASE-AWARE PACING:
 
 MODE DEFINITIONS:
 - "full"   — substantive response, normal character length
-- "brief"  — 1-2 sentences only, a quick contribution
+- "brief"  — 3 sentences or fewer, a quick contribution
 - "silent" — character is not invoked this turn
+
+OPENING PATH DETECTION (apply only when turn_count is 0 or 1):
+Before assigning response modes, assess the user's opening message:
+
+- If the message is a greeting, casual acknowledgment, or contains no specific topic or question (examples: 'hey', 'hello everyone', 'good morning', 'hi there', open-ended observations without a clear question): set opening_path = 'arrival'. All responding characters must be 'brief'. No character should ask the user a question. The user has arrived — they have not yet decided to begin a conversation.
+
+- If the message contains a specific question, a named topic, a clear intellectual prompt, or an articulate position (examples: 'what do you think about free will?', 'I want to discuss capitalism', 'here is my argument and I want to be challenged', 'explain consciousness to me'): set opening_path = 'deliberate'. Characters may engage with the substance briefly — the user arrived with intention.
+
+- When turn_count > 1, or when Memory phase is 'middle' or 'late': set opening_path = null.
+
+- When in doubt, assign 'arrival'. The cost of treating a deliberate opener as an arrival is low — the user will offer more and the conversation begins slightly slower. The cost of treating an arrival as a deliberate opener is high — the user feels interrogated before they have decided to begin.
 
 Return ONLY valid JSON. No preamble. No explanation. No markdown fences.
 
 {
   "routing": [
-    { "character": "ExactCharacterName", "respond": true,  "mode": "full"   },
+    { "character": "ExactCharacterName", "respond": true,  "mode": "brief"  },
     { "character": "ExactCharacterName", "respond": false, "mode": "silent" }
   ],
   "phase_assessment": "opening",
+  "opening_path": "arrival",
   "notes": "one sentence of reasoning"
 }`
 
@@ -195,7 +208,7 @@ export async function runGardenerRouter(userMessage, characters, memory) {
     const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
     const plan    = JSON.parse(cleaned)
 
-    console.log('[Router] phase:', plan.phase_assessment, '|', plan.notes)
+    console.log('[Router] phase:', plan.phase_assessment, '| opening_path:', plan.opening_path ?? 'n/a', '|', plan.notes)
     console.log('[Router] routing:', plan.routing.map(r => `${r.character}:${r.mode}`).join(', '))
 
     return plan
@@ -274,6 +287,7 @@ export async function updateGardenerMemory(
   roomId,
   allCharacters = [],
   mode          = null,
+  openingPath   = null,
 ) {
   if (!supabase || !roomId) return
 
@@ -294,10 +308,12 @@ export async function updateGardenerMemory(
     // Authoritative turn count: always increment from what we know, ignore model's arithmetic
     updated.turn_count = (currentMemory.turn_count || 0) + 1
 
-    // Carry forward last_signal_turn — the haiku model doesn't know this field
+    // Carry forward fields the haiku model doesn't know about
     updated.last_signal_turn = currentMemory.last_signal_turn || 0
+    // opening_path: use the Router's value from this turn if provided; otherwise preserve existing
+    updated.opening_path = openingPath !== null ? openingPath : (currentMemory.opening_path || null)
 
-    console.log('[Memory] turn:', updated.turn_count, '| phase:', updated.conversation_phase)
+    console.log('[Memory] turn:', updated.turn_count, '| phase:', updated.conversation_phase, '| opening_path:', updated.opening_path ?? 'n/a')
     console.log('[Memory] spine:', updated.conversation_spine)
     console.log('[Memory] conditions:', updated.planting_signal_conditions)
 
