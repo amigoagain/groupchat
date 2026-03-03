@@ -66,9 +66,11 @@ function buildApiMessages(previousMessages, characterId, currentUserMessage, pre
 
   let currentContent = currentUserMessage
   if (precedingResponses.length > 0) {
+    // Full responses must be passed — never slice. A truncated preceding response
+    // produces incomplete context fragments in subsequent character prompts (Bug 2).
     currentContent +=
       '\n\n[Other participants have already responded to this message:\n' +
-      precedingResponses.map(r => `• ${r.characterName}: "${r.content.slice(0, 100)}${r.content.length > 100 ? '…' : ''}"`).join('\n') +
+      precedingResponses.map(r => `• ${r.characterName}: "${r.content}"`).join('\n') +
       '\n\nDo NOT repeat, restate, or paraphrase what they said. Respond in your own voice with your own distinct perspective only. Their words are context, not content for you to reproduce.]'
   }
   apiMessages.push({ role: 'user', content: currentContent })
@@ -335,12 +337,23 @@ function buildSystemPrompt(character, mode, allCharacters, responseWeight = 'ful
       contextLines
   }
 
-  // Gardener governance layer — injected when currentMemory is provided (gardenerEnabled toggle)
-  const gardenerLayer = currentMemory !== null
-    ? buildGardenerPrompt(allCharacters, currentMemory) + '\n\n---\n\n'
-    : ''
+  // Active signal notes — brief ladybug/hux protocol cues only.
+  // The Gardener's identity ("You are the Gardener…") must NEVER appear here.
+  // The Gardener runs as its own separate API call in gardenerMemory.js.
+  // Characters receive only their own identity + targeted signal cues.
+  let signalNotes = ''
+  if (currentMemory) {
+    const ladybugs = currentMemory.ladybug_instances || []
+    const barks    = currentMemory.hux_bark_instances || []
+    if (ladybugs.length > 0) {
+      signalNotes += '\n\nLADYBUG PROTOCOL ACTIVE: A drift signal has been detected for this conversation. In your response, subtly reanchor to your own first principles — notice a tension or limit, in your own authentic voice. Do not correct directly. Do not announce any correction.'
+    }
+    if (barks.length > 0) {
+      signalNotes += '\n\nHUX BARK ACTIVE: Framework amplification has been detected. Resist the conversational momentum. Introduce a genuine unexpected angle, a real friction point, or a limit your framework actually requires you to name.'
+    }
+  }
 
-  return `${gardenerLayer}${character.personality}${modeConstraint}${openingConstraint}${contextInstruction}
+  return `${character.personality}${signalNotes}${modeConstraint}${openingConstraint}${contextInstruction}
 
 ${mode.modeContext}
 
