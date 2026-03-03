@@ -4,19 +4,37 @@ import TypingIndicator from './TypingIndicator.jsx'
 import UsernameModal from './UsernameModal.jsx'
 import { getCharacterResponse, generateInviteMessage } from '../services/claudeApi.js'
 import { routeMessage, formatRoutingNotice } from '../services/weaverRouter.js'
-import { fetchOrCreateMemory, runGardenerRouter, updateGardenerMemory } from '../services/gardenerMemory.js'
+import {
+  fetchOrCreateMemory, runGardenerRouter, updateGardenerMemory,
+  writeSeasonalAssessment, fetchStrollState, incrementStrollTurn,
+  runStrollGardener, setStrollDormant,
+} from '../services/gardenerMemory.js'
+import { gooseHonk2, checkGovernanceCollapse } from '../services/gooseAgent.js'
+import { runWeatherAssessment, getLatestWeather } from '../services/weatherAgent.js'
+import { runBugsAssessment } from '../services/bugsAgent.js'
+import { runHuxAssessment } from '../services/huxAgent.js'
 import { isSupabaseConfigured } from '../lib/supabase.js'
 import { insertMessage, fetchMessages, fetchMessagesAfter } from '../utils/messageUtils.js'
 import { saveRoom, ensureParticipant, getMyRole, listParticipants, setParticipantRole, fetchRoomAncestors } from '../utils/roomUtils.js'
 import { getUsername, setUsername } from '../utils/username.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useDevMode } from '../contexts/DevModeContext.jsx'
+import LibraryScreen from './LibraryScreen.jsx'
 
 const POLL_INTERVAL_MS = 3000
 
-export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranchConfig }) {
+export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranchConfig, onTriggerStroll }) {
   const { isAuthenticated, username: authUsername, userId } = useAuth()
-  const { routerEnabled, memoryEnabled, gardenerEnabled } = useDevMode()
+  const {
+    routerEnabled, memoryEnabled, gardenerEnabled,
+    gooseEnabled, weatherEnabled, bugsEnabled, huxEnabled,
+  } = useDevMode()
+
+  const [showLibrary, setShowLibrary] = useState(false)
+
+  // Stroll state — loaded once on mount for stroll rooms
+  const [strollState, setStrollState] = useState(null)
+  const isStrollRoom = room?.mode?.id === 'stroll' || room?.roomMode === 'stroll'
 
   const [messages,        setMessages]        = useState([])
   const [input,           setInput]           = useState('')
@@ -72,6 +90,11 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     fetchMessages(room.id)
       .then(msgs => { setMessages(msgs); setIsLoading(false) })
       .catch(() => setIsLoading(false))
+
+    // Load stroll state if applicable
+    if (isStrollRoom) {
+      fetchStrollState(room.id).then(s => setStrollState(s))
+    }
 
     if (isAuthenticated && userId) {
       const uname = authUsername || getUsername() || 'User'
@@ -155,6 +178,42 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   const handleSend = useCallback(async () => {
     const text = input.trim()
     if (!text || isSending || sendLockRef.current) return
+
+    // ── Command parsing ───────────────────────────────────────────────────────
+    if (text === '/library') {
+      setInput('')
+      setShowLibrary(true)
+      return
+    }
+    if (text === '/stroll') {
+      setInput('')
+      if (onTriggerStroll) onTriggerStroll()
+      return
+    }
+    if (text === '/farmer') {
+      setInput('')
+      // Goose Honk 2 — collect state and write to library_reports
+      const summary = await gooseHonk2(room.id, 'farmer_trigger', gooseEnabled)
+      if (summary) {
+        const sysMsg = {
+          type:          'character',
+          content:       summary,
+          characterName: 'Goose',
+          characterColor: '#6b7c47',
+          characterInitial: 'G',
+          characterId:   'goose',
+          isError:       false,
+        }
+        if (isSupabaseConfigured && room?.id) {
+          const saved = await insertMessage(sysMsg, room.id)
+          setMessages(prev => [...prev, saved])
+        } else {
+          setMessages(prev => [...prev, { ...sysMsg, id: `goose_${Date.now()}`, timestamp: new Date().toISOString() }])
+        }
+      }
+      return
+    }
+
     sendLockRef.current = true
 
     const controller = new AbortController()
@@ -187,13 +246,25 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
 
-    // Fetch Gardener memory and run Weaver routing in parallel — both are
-    // needed before we can call the Gardener Router.
+    // Fetch Gardener memory, run Weaver routing, and run Weather assessment in parallel.
     // Dev toggles: memoryEnabled gates memory fetch; routerEnabled gates Router call.
+    const currentStrollState = strollState
     const [routing, memory] = await Promise.all([
-      routeMessage(text, room.characters, conversationSnapshot, controller.signal),
+      isStrollRoom
+        ? Promise.resolve({ respondingCharacters: [], routingReason: 'stroll', weights: [] })
+        : routeMessage(text, room.characters, conversationSnapshot, controller.signal),
       memoryEnabled ? fetchOrCreateMemory(room.id || null) : Promise.resolve(null),
     ])
+
+    // Weather assessment (fire-and-forget — doesn't block response flow)
+    if (weatherEnabled) {
+      const turnsElapsed   = currentStrollState?.turns_elapsed ?? 0
+      const turnsRemaining = currentStrollState?.turns_remaining ?? 0
+      const turnTotal      = currentStrollState?.turn_count_total ?? 0
+      runWeatherAssessment(
+        room.id, text, conversationSnapshot, turnsElapsed, turnsRemaining, turnTotal, weatherEnabled
+      ).catch(() => {})
+    }
 
     const notice = formatRoutingNotice(routing)
     if (notice) setRoutingNotice(notice)
@@ -236,6 +307,64 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
     const precedingResponses = []
 
+    // ── Stroll mode — Gardener is the only voice ──────────────────────────────
+    if (isStrollRoom) {
+      setTypingCharacter({ name: 'Gardener', color: '#6b7c47', initial: 'G' })
+      try {
+        const responseText = await runStrollGardener(text, memory, currentStrollState, conversationSnapshot, room.id)
+        if (!cancelledRef.current) {
+          const strollMsgPayload = {
+            type:             'character',
+            content:          responseText,
+            characterId:      'gardener',
+            characterName:    'Gardener',
+            characterColor:   '#6b7c47',
+            characterInitial: 'G',
+          }
+          let savedMsg
+          if (isSupabaseConfigured && room?.id) {
+            savedMsg = await insertMessage(strollMsgPayload, room.id)
+          } else {
+            savedMsg = { ...strollMsgPayload, id: `stroll_${Date.now()}`, timestamp: new Date().toISOString() }
+          }
+          setMessages(prev => [...prev, savedMsg])
+          precedingResponses.push({ characterName: 'Gardener', content: responseText })
+
+          // Track stroll turn
+          const newStrollState = await incrementStrollTurn(room.id, currentStrollState)
+          setStrollState(newStrollState)
+          console.log('[Stroll] turn:', newStrollState?.turns_elapsed, '/', newStrollState?.turn_count_total, '| season:', newStrollState?.current_season, '| remaining:', newStrollState?.turns_remaining)
+
+          // Check if stroll is in dormancy (Gardener asked the binary question)
+          const isDormancyQuestion = responseText.toLowerCase().includes('shall we continue')
+          if (newStrollState?.turns_remaining <= 0 || newStrollState?.current_season === 'dormant') {
+            // Auto-trigger dormancy
+            setStrollDormant(room.id).catch(() => {})
+          }
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.error('[Stroll] Gardener error:', err)
+          const errMsg = { type: 'character', content: '[The garden is quiet right now.]', characterId: 'gardener', characterName: 'Gardener', characterColor: '#6b7c47', characterInitial: 'G', isError: true }
+          setMessages(prev => [...prev, { ...errMsg, id: `stroll_err_${Date.now()}`, timestamp: new Date().toISOString() }])
+        }
+      }
+
+      setTypingCharacter(null)
+      setIsSending(false)
+      setRoutingNotice(null)
+      cancelledRef.current = false
+      sendLockRef.current = false
+      if (memoryEnabled && memory) {
+        updateGardenerMemory(text, precedingResponses, memory, room.id || null, [], room.mode, null)
+        writeSeasonalAssessment(room.id, memory, text, precedingResponses).catch(() => {})
+      }
+      saveRoom(room.code, { ...room })
+      onUpdateRoom({ ...room })
+      return
+    }
+
+    // ── Regular mode — multi-character flow ───────────────────────────────────
     for (const character of respondingCharacters) {
       if (cancelledRef.current) break
       setTypingCharacter(character)
@@ -254,8 +383,9 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
           room.foundingContext || null,
           room.id || null,
           lastSeq,
-          gardenerEnabled,   // dev toggle: when false, skip opening/mode constraints
+          gardenerEnabled,   // dev toggle: includes Gardener governance layer in prompt
           openingPath,       // 'arrival' | 'deliberate' | null from Router
+          gardenerEnabled ? memory : null, // pass memory for ladybug/hux context
         )
 
         if (cancelledRef.current) break
@@ -278,6 +408,19 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
         precedingResponses.push({ characterName: character.name, content: responseText })
         setMessages(prev => [...prev, savedCharMsg])
+
+        // Run Bugs + Hux in parallel (fire-and-forget) after each character response
+        const currentTurnNumber = (memory?.turn_count || 0) + 1
+        if (bugsEnabled || huxEnabled) {
+          Promise.all([
+            bugsEnabled
+              ? runBugsAssessment(character.id, character.name, responseText, precedingResponses, room.id, currentTurnNumber, bugsEnabled)
+              : Promise.resolve(null),
+            huxEnabled
+              ? runHuxAssessment(precedingResponses, room.id, currentTurnNumber, huxEnabled)
+              : Promise.resolve(null),
+          ]).catch(() => {})
+        }
 
       } catch (err) {
         if (err.name === 'AbortError') break
@@ -308,15 +451,22 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     sendLockRef.current = false
 
     // Fire-and-forget Gardener Memory update.
-    // Runs after responses are already displayed — never blocks the user.
-    // Dev toggle: when memoryEnabled is false, skip entirely.
     if (memoryEnabled && memory) {
       updateGardenerMemory(text, precedingResponses, memory, room.id || null, room.characters, room.mode, openingPath)
+      writeSeasonalAssessment(room.id, memory, text, precedingResponses).catch(() => {})
+    }
+
+    // Governance collapse check (fire-and-forget)
+    if (gooseEnabled && room?.id) {
+      const currentTurn = (memory?.turn_count || 0) + 1
+      checkGovernanceCollapse(room.id, currentTurn).then(collapsed => {
+        if (collapsed) gooseHonk2(room.id, 'governance_collapse', gooseEnabled)
+      }).catch(() => {})
     }
 
     saveRoom(room.code, { ...room })
     onUpdateRoom({ ...room })
-  }, [input, isSending, room, onUpdateRoom, isAuthenticated, authUsername, userId])
+  }, [input, isSending, room, onUpdateRoom, isAuthenticated, authUsername, userId, isStrollRoom, strollState, gooseEnabled, weatherEnabled, bugsEnabled, huxEnabled, gardenerEnabled, routerEnabled, memoryEnabled])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -360,18 +510,31 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
     const charNames = room.characters.map(c => c.name).join(', ')
     const now       = new Date().toLocaleString()
-    const gardenerState = [
+
+    // Full Kepos agent state line (Stage 8 expansion)
+    const agentState = [
       `Router ${routerEnabled   ? 'ON' : 'OFF'}`,
       `Memory ${memoryEnabled   ? 'ON' : 'OFF'}`,
-      `Gardener prompt ${gardenerEnabled ? 'ON' : 'OFF'}`,
+      `Gardener ${gardenerEnabled ? 'ON' : 'OFF'}`,
+      `Goose ${gooseEnabled    ? 'ON' : 'OFF'}`,
+      `Weather ${weatherEnabled  ? 'ON' : 'OFF'}`,
+      `Bugs ${bugsEnabled     ? 'ON' : 'OFF'}`,
+      `Hux ${huxEnabled      ? 'ON' : 'OFF'}`,
     ].join(' | ')
+
+    const strollLines = isStrollRoom && strollState ? [
+      `Season: ${strollState.current_season || 'winter_1'}`,
+      `Turns remaining: ${strollState.turns_remaining ?? '?'}`,
+    ] : []
 
     const header = [
       '--- Kepos Room Transcript ---',
       `Room: ${room.name || room.code}`,
-      `Characters: ${charNames}`,
+      `Mode: ${isStrollRoom ? 'stroll' : (room.mode?.name || 'Chat')}`,
+      ...(charNames ? [`Characters: ${charNames}`] : []),
       `Date: ${now}`,
-      `Gardener state: ${gardenerState}`,
+      `Kepos state: ${agentState}`,
+      ...strollLines,
       '---',
     ].join('\n')
 
@@ -395,7 +558,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     } catch (err) {
       console.warn('[CopyChat] clipboard write failed:', err)
     }
-  }, [room, routerEnabled, memoryEnabled, gardenerEnabled])
+  }, [room, routerEnabled, memoryEnabled, gardenerEnabled, gooseEnabled, weatherEnabled, bugsEnabled, huxEnabled, isStrollRoom, strollState])
 
   const handleInputChange = (e) => {
     setInput(e.target.value)
@@ -519,6 +682,11 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
   return (
     <div className={`chat-screen${selectionMode ? ' selection-mode' : ''}`}>
+
+      {/* Library overlay */}
+      {showLibrary && (
+        <LibraryScreen onClose={() => setShowLibrary(false)} />
+      )}
 
       {/* ── Floating header overlay ── */}
       <div className="chat-float-header">

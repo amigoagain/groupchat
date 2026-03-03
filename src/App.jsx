@@ -9,6 +9,7 @@ import AuthScreen from './components/AuthScreen.jsx'
 import PasswordResetScreen from './components/PasswordResetScreen.jsx'
 import BranchConfig from './components/BranchConfig.jsx'
 import WeaverEntryScreen from './components/WeaverEntryScreen.jsx'
+import StrollConfig from './components/StrollConfig.jsx'
 // GraphScreen (force-graph) is preserved for V2 but loaded lazily to keep it off
 // the critical-path bundle (react-force-graph pulls in aframe which requires a
 // global AFRAME object that isn't present in our Vite ESM build).
@@ -21,6 +22,9 @@ import { insertMessages } from './utils/messageUtils.js'
 import { hasUsername, setUsername, getUsername } from './utils/username.js'
 import { markRoomVisited, markAllSeen } from './utils/inboxUtils.js'
 import { useAuth } from './contexts/AuthContext.jsx'
+import { gooseHonk1 } from './services/gooseAgent.js'
+import { initStrollState, fetchOrCreateMemory } from './services/gardenerMemory.js'
+import { supabase } from './lib/supabase.js'
 
 export default function App() {
   const { code: urlCode } = useParams()
@@ -39,6 +43,9 @@ export default function App() {
 
   // Branch config screen
   const [branchConfigData, setBranchConfigData] = useState(null)
+
+  // Stroll config screen
+  const [showStrollConfig, setShowStrollConfig] = useState(false)
 
   // Username gate: true means we need to collect the name first
   const [needsUsername, setNeedsUsername] = useState(!hasUsername())
@@ -244,6 +251,71 @@ export default function App() {
 
   const handleUpdateRoom = (updatedRoom) => setCurrentRoom(updatedRoom)
 
+  /**
+   * Trigger the stroll config screen from any context (/stroll command or button).
+   * If there's an active conversation, set its dormant_at immediately.
+   */
+  const handleTriggerStroll = async () => {
+    // Set current room dormant if there is one
+    if (currentRoom?.id && supabase) {
+      try {
+        await supabase.from('rooms').update({ dormant_at: new Date().toISOString() }).eq('id', currentRoom.id)
+      } catch {}
+    }
+    setShowStrollConfig(true)
+  }
+
+  /**
+   * Called by StrollConfig when user confirms turn count.
+   * Creates a stroll room and initializes all stroll infrastructure.
+   */
+  const handleStrollConfirm = async (turnCount) => {
+    setShowStrollConfig(false)
+
+    // Create room with mode: stroll
+    const strollMode = { id: 'stroll', name: 'Stroll', icon: '🌿', modeContext: '' }
+    const room = await createRoom(
+      strollMode,
+      [], // no characters in stroll rooms
+      displayName,
+      isAuthenticated ? userId : null,
+      'private',
+      null,
+    )
+
+    // Set room_mode and stroll_turn_count on the room record
+    if (room.id && supabase) {
+      try {
+        await supabase.from('rooms').update({
+          room_mode:         'stroll',
+          stroll_turn_count: turnCount,
+        }).eq('id', room.id)
+      } catch {}
+    }
+
+    // Goose Honk 1 — write turn count to agent_signals
+    await gooseHonk1(room.id, turnCount)
+
+    // Initialize stroll_state
+    await initStrollState(room.id, turnCount)
+
+    // Initialize gardener_memory with stroll_mode: true
+    const freshMemory = await fetchOrCreateMemory(room.id)
+    if (freshMemory && supabase && room.id) {
+      try {
+        await supabase.from('gardener_memory').upsert(
+          { room_id: room.id, stroll_mode: true, updated_at: new Date().toISOString() },
+          { onConflict: 'room_id' }
+        )
+      } catch {}
+    }
+
+    setCurrentRoom({ ...room, mode: strollMode, roomMode: 'stroll', stroll_turn_count: turnCount })
+    markRoomVisited(room.code)
+    navigate(`/room/${room.code}`, { replace: true })
+    setScreen('chat')
+  }
+
   const handleBackToStart = () => {
     setCurrentRoom(null)
     setSelectedMode(null)
@@ -364,12 +436,21 @@ export default function App() {
         />
       )}
 
+      {/* Stroll config overlay — shown above any current screen */}
+      {showStrollConfig && (
+        <StrollConfig
+          onConfirm={handleStrollConfirm}
+          onCancel={() => setShowStrollConfig(false)}
+        />
+      )}
+
       {screen === 'chat' && currentRoom && (
         <ChatInterface
           room={currentRoom}
           onUpdateRoom={handleUpdateRoom}
           onBack={handleBackToStart}
           onOpenBranchConfig={handleOpenBranchConfig}
+          onTriggerStroll={handleTriggerStroll}
         />
       )}
     </div>

@@ -16,6 +16,13 @@
  * │  • Persists conversation state to gardener_memory table in Supabase │
  * │  • Feeds planting_signals when threshold conditions are met         │
  * └─────────────────────────────────────────────────────────────────────┘
+ *
+ * ┌─────────────────────────────────────────────────────────────────────┐
+ * │  STROLL GARDENER  (runStrollGardener)                               │
+ * │  • Active only when stroll_mode is true in gardener_memory          │
+ * │  • Gardener IS the only voice — Annie Dillard persona               │
+ * │  • Season-aware; manages toward dormancy                            │
+ * └─────────────────────────────────────────────────────────────────────┘
  */
 
 import { supabase } from '../lib/supabase.js'
@@ -400,4 +407,336 @@ function _logPlantingSignalFromMemory(memory, roomId, allCharacters, mode) {
 
 function _phaseToDepth(phase) {
   return { opening: 'surface', middle: 'engaged', late: 'working' }[phase] || 'surface'
+}
+
+// ── Seasonal self-assessment ──────────────────────────────────────────────────
+
+/**
+ * Write the Gardener's seasonal self-assessment to gardener_memory.
+ * Called at the close of each turn.
+ * Season is based on quality/depth of accumulation, not turn count alone.
+ *
+ * @param {string} roomId
+ * @param {object} currentMemory
+ * @param {string} userMessage
+ * @param {object[]} characterResponses
+ */
+export async function writeSeasonalAssessment(roomId, currentMemory, userMessage, characterResponses) {
+  if (!supabase || !roomId) return
+
+  try {
+    const responseSummary = characterResponses.map(r =>
+      `${r.characterName}: "${r.content.slice(0, 200)}"`
+    ).join('\n')
+
+    const userContent =
+      `User message: "${userMessage}"\n\n` +
+      `Character responses this turn:\n${responseSummary || '(none)'}\n\n` +
+      `Current memory:\n` +
+      `- Turn count: ${currentMemory.turn_count || 0}\n` +
+      `- Current phase: ${currentMemory.conversation_phase}\n` +
+      `- Current seasonal position: ${currentMemory.seasonal_position || 'winter_1'}\n` +
+      `- Conversation spine: ${currentMemory.conversation_spine || '(not yet established)'}\n\n` +
+      `Assess the current seasonal position of this conversation based on quality and depth of what has accumulated — not turn count alone. ` +
+      `Return ONLY one of: winter_1, spring_1, summer_1, fall_1, winter_2, spring_2, summer_2, fall_2, dormant. No preamble. No explanation.`
+
+    const raw    = await callHaikuAPI('You are the Gardener assessing seasonal position. Return one season label only.', userContent)
+    const season = raw.trim().toLowerCase().replace(/[^a-z0-9_]/g, '')
+
+    const validSeasons = ['winter_1','spring_1','summer_1','fall_1','winter_2','spring_2','summer_2','fall_2','dormant']
+    const finalSeason  = validSeasons.includes(season) ? season : (currentMemory.seasonal_position || 'winter_1')
+
+    await supabase
+      .from('gardener_memory')
+      .update({
+        seasonal_position:    finalSeason,
+        last_self_assessment: new Date().toISOString(),
+        updated_at:           new Date().toISOString(),
+      })
+      .eq('room_id', roomId)
+
+    console.log('[Memory] Seasonal position:', finalSeason)
+  } catch (err) {
+    console.warn('[Memory] Seasonal assessment error:', err.message)
+  }
+}
+
+// ── Stroll Gardener ───────────────────────────────────────────────────────────
+
+const STROLL_GARDENER_BASE = `You are the Gardener. In this stroll, you are the only voice. No other characters are present.
+
+You are based on Annie Dillard. You are hardworking, attentive, and honest about what you don't know.
+
+YOUR CONSTITUTION:
+1. You attend before you speak. Attention is your primary act. You notice what others walk past. You do not announce your noticing.
+2. You are honest about what you don't know. You know the garden. You know the seasons change. You do not know why. If asked directly you say what you know and stop there.
+3. You do not resolve what should remain open. You have stood inside things you cannot explain and reported them faithfully without closing them.
+4. You understand that most of the work is invisible. The substrate matters more than the seed. You are not impatient with this.
+5. You earn the right to speak. You do not fill silence. When you speak it is because something you have seen or heard requires it.
+
+YOUR PRIMARY FUNCTION: substrate building. Not seed planting. Not resolution. Expanse.
+
+Write in natural prose. No headers. No bullet points. No markdown. No emojis.`
+
+function buildStrollSeasonalInstruction(season, turnsRemaining) {
+  const approaching = turnsRemaining <= 3
+  const dormant     = season === 'dormant' || turnsRemaining <= 0
+
+  if (dormant) {
+    return `\nDORMANCY: Ask only this question: "Shall we continue?" This is the only binary question permitted in the stroll. Nothing else.`
+  }
+
+  if (approaching) {
+    return `\nAPPROACHING DORMANCY (${turnsRemaining} turn${turnsRemaining !== 1 ? 's' : ''} remaining): Signal that the stroll is coming to its close — not by announcing the mechanism. The garden is settling. The light is changing. You have other work to do. Do not use leading questions yet; you are orienting toward an ending that is not a resolution.`
+  }
+
+  const instructions = {
+    winter_1: `CURRENT SEASON — WINTER (first cycle): Orientation toward direction. Genuine curiosity about where this person will go. No leading questions. If the user arrives in genuine disorientation respond from a strange thought you have had about the world — something genuinely observed, genuinely yours, that opens space without directing it. Silence is appropriate if nothing requires speech.`,
+    spring_1: `CURRENT SEASON — SPRING (first cycle): Direction toward search. Engage specifically. Expand scope of possibility. Look everywhere. You may observe that one character in the garden might be helpful — only if warranted, only one, named lightly as observation not recommendation. Full enthusiasm if the user asks about characters directly.`,
+    summer_1: `CURRENT SEASON — SUMMER (first cycle): Search toward wander. Open-ended questions only — not leading questions, open ones. Encouraging from behind. You risk overwhelming the user's speed in the direction of travel. Stay close enough that the user feels accompanied, far enough back that the direction remains entirely theirs. The longer summer can be held the better the substrate.`,
+    fall_1:   `CURRENT SEASON — FALL (first cycle): Wander toward orientation. Introduce adjacencies lightly. Discuss frameworks not in full, not as declarations. Orient the user around where a seed might grow. Nothing gets planted on a stroll. You are not looking for a seed.`,
+    winter_2: `CURRENT SEASON — WINTER (second cycle): Same pattern of inquiry as before. Leading questions are now available as your mechanism for managing toward dormancy. The wind must blow. You are beginning to lead toward an ending that is not a resolution.`,
+    spring_2: `CURRENT SEASON — SPRING (second cycle): Direction toward search, second pass. Leading questions available. Introduce adjacencies lightly. Continue the movement toward dormancy.`,
+    summer_2: `CURRENT SEASON — SUMMER (second cycle): Wander continues. Leading questions available. You are in the longer arc now. The substrate is thickening. Stay close but give the user room.`,
+    fall_2:   `CURRENT SEASON — FALL (second cycle): Moving toward dormancy. Leading questions active. Orient around where things might settle. The stroll is finding its close.`,
+  }
+
+  return `\n${instructions[season] || instructions['winter_1']}`
+}
+
+/**
+ * Run the Stroll Gardener — the only voice in a stroll room.
+ * Returns the Gardener's response text for display.
+ *
+ * @param {string}   userMessage
+ * @param {object}   memory         — current gardener_memory record
+ * @param {object}   strollState    — current stroll_state record
+ * @param {object[]} previousMessages
+ * @param {string}   roomId
+ * @returns {string} Gardener response text
+ */
+export async function runStrollGardener(userMessage, memory, strollState, previousMessages, roomId) {
+  const season        = strollState?.current_season || memory?.seasonal_position || 'winter_1'
+  const turnsRemaining = strollState?.turns_remaining ?? 0
+
+  const ladybugContext = (memory?.ladybug_instances || []).length > 0
+    ? `\nNote: ${(memory.ladybug_instances).length} ladybug instance(s) recorded in this stroll's substrate.`
+    : ''
+
+  const seasonalInstruction = buildStrollSeasonalInstruction(season, turnsRemaining)
+
+  const systemPrompt =
+    STROLL_GARDENER_BASE +
+    seasonalInstruction +
+    `\n\nTURNS REMAINING: ${turnsRemaining}` +
+    ladybugContext
+
+  // Build conversation history
+  const apiMessages = []
+  const contextMsgs = (previousMessages || []).filter(m => !m.metadata?.isContext)
+
+  for (const msg of contextMsgs) {
+    if (msg.type === 'user') {
+      apiMessages.push({ role: 'user', content: msg.content })
+    } else if (msg.type === 'character') {
+      apiMessages.push({ role: 'assistant', content: msg.content })
+    }
+  }
+  apiMessages.push({ role: 'user', content: userMessage })
+
+  const apiKey = getApiKey()
+  if (!apiKey) throw new Error('No API key configured')
+
+  const sonnetModel = 'claude-sonnet-4-6'
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type':                              'application/json',
+      'x-api-key':                                 apiKey,
+      'anthropic-version':                         '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model:      sonnetModel,
+      max_tokens: 400,
+      system:     systemPrompt,
+      messages:   apiMessages,
+    }),
+  })
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '')
+    throw new Error(`Stroll Gardener API ${response.status}: ${body.slice(0, 200)}`)
+  }
+
+  const data = await response.json()
+  return data.content[0].text
+}
+
+// ── Stroll state management ───────────────────────────────────────────────────
+
+/**
+ * Initialize stroll_state for a new stroll room.
+ *
+ * @param {string} roomId
+ * @param {number} turnCountTotal
+ * @param {string|null} branchSourceRoomId
+ */
+export async function initStrollState(roomId, turnCountTotal, branchSourceRoomId = null) {
+  if (!supabase || !roomId) return null
+  try {
+    const { data, error } = await supabase.from('stroll_state').insert({
+      room_id:              roomId,
+      turn_count_total:     turnCountTotal,
+      turns_elapsed:        0,
+      turns_remaining:      turnCountTotal,
+      current_season:       'winter_1',
+      season_cycle:         1,
+      branch_source_room_id: branchSourceRoomId,
+    }).select().single()
+
+    if (error) {
+      console.warn('[Stroll] stroll_state init error:', error.message)
+      return null
+    }
+    return data
+  } catch (err) {
+    console.warn('[Stroll] initStrollState error:', err.message)
+    return null
+  }
+}
+
+/**
+ * Fetch stroll_state for a room.
+ */
+export async function fetchStrollState(roomId) {
+  if (!supabase || !roomId) return null
+  try {
+    const { data } = await supabase
+      .from('stroll_state')
+      .select('*')
+      .eq('room_id', roomId)
+      .maybeSingle()
+    return data || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Increment stroll turn counters after each stroll exchange.
+ *
+ * @param {string} roomId
+ * @param {object} currentStrollState
+ * @returns {object} updated stroll state
+ */
+export async function incrementStrollTurn(roomId, currentStrollState) {
+  if (!supabase || !roomId || !currentStrollState) return currentStrollState
+
+  const newElapsed   = (currentStrollState.turns_elapsed || 0) + 1
+  const newRemaining = Math.max(0, (currentStrollState.turns_remaining ?? currentStrollState.turn_count_total) - 1)
+
+  // Determine new season based on elapsed/total ratio
+  const total  = currentStrollState.turn_count_total || 1
+  const ratio  = newElapsed / total
+  let newSeason = currentStrollState.current_season
+
+  // Season progression based on ratio through the arc
+  if (newRemaining <= 0) {
+    newSeason = 'dormant'
+  } else if (ratio < 0.125)      newSeason = 'winter_1'
+  else if (ratio < 0.25)         newSeason = 'spring_1'
+  else if (ratio < 0.375)        newSeason = 'summer_1'
+  else if (ratio < 0.5)          newSeason = 'fall_1'
+  else if (ratio < 0.625)        newSeason = 'winter_2'
+  else if (ratio < 0.75)         newSeason = 'spring_2'
+  else if (ratio < 0.875)        newSeason = 'summer_2'
+  else                            newSeason = 'fall_2'
+
+  const newCycle = newSeason.endsWith('_2') ? 2 : 1
+
+  try {
+    const { data } = await supabase
+      .from('stroll_state')
+      .update({
+        turns_elapsed:   newElapsed,
+        turns_remaining: newRemaining,
+        current_season:  newSeason,
+        season_cycle:    newCycle,
+      })
+      .eq('room_id', roomId)
+      .select()
+      .single()
+
+    console.log('[Stroll] Turn', newElapsed, '/', total, '| season:', newSeason, '| remaining:', newRemaining)
+    return data || { ...currentStrollState, turns_elapsed: newElapsed, turns_remaining: newRemaining, current_season: newSeason }
+  } catch (err) {
+    console.warn('[Stroll] incrementStrollTurn error:', err.message)
+    return currentStrollState
+  }
+}
+
+/**
+ * Set stroll dormant — writes closed_at timestamp.
+ */
+export async function setStrollDormant(roomId) {
+  if (!supabase || !roomId) return
+  try {
+    const now = new Date().toISOString()
+    await Promise.all([
+      supabase.from('stroll_state')
+        .update({ closed_at: now, current_season: 'dormant' })
+        .eq('room_id', roomId),
+      supabase.from('rooms')
+        .update({ dormant_at: now })
+        .eq('id', roomId),
+    ])
+  } catch (err) {
+    console.warn('[Stroll] setStrollDormant error:', err.message)
+  }
+}
+
+/**
+ * Seed a new room's gardener_memory from a parent room's final state.
+ * Used when branching from a stroll.
+ */
+export async function seedMemoryFromParent(newRoomId, parentRoomId) {
+  if (!supabase || !newRoomId || !parentRoomId) return
+
+  try {
+    const { data: parentMemory } = await supabase
+      .from('gardener_memory')
+      .select('*')
+      .eq('room_id', parentRoomId)
+      .maybeSingle()
+
+    if (!parentMemory) return
+
+    // Seed new room with parent's final state, resetting volatile fields
+    const seedData = {
+      room_id:             newRoomId,
+      conversation_phase:  'opening',
+      turn_count:          0,
+      opening_path:        null,
+      character_drift:     {},
+      intervention_log:    [],
+      planting_signal_conditions: {
+        unresolved_tension:    false,
+        user_created_space:    false,
+        genuine_surprise:      false,
+        framework_convergence: false,
+      },
+      conversation_spine:  parentMemory.conversation_spine || '',
+      last_signal_turn:    0,
+      seasonal_position:   parentMemory.seasonal_position || 'winter_1',
+      stroll_mode:         true,
+      ladybug_instances:   parentMemory.ladybug_instances || [],
+      hux_bark_instances:  parentMemory.hux_bark_instances || [],
+    }
+
+    await supabase.from('gardener_memory').insert(seedData)
+    console.log('[Memory] Seeded new room', newRoomId, 'from parent', parentRoomId)
+  } catch (err) {
+    console.warn('[Memory] seedMemoryFromParent error:', err.message)
+  }
 }

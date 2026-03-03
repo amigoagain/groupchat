@@ -112,15 +112,15 @@ Watch for drift toward: ${driftNote}`
 
 /**
  * Build the full Gardener system prompt (V2) with the dynamic character block.
- * This is prepended to every character's system prompt as the governing layer.
+ * Optionally includes active ladybug/hux state for this turn.
  *
- * Injection mechanism and concatenation pattern are unchanged from V1.
- * Only the prompt content is updated here.
+ * @param {object[]} allCharacters
+ * @param {object|null} currentMemory — gardener_memory record (for ladybug/hux state)
  */
-function buildGardenerPrompt(allCharacters) {
+function buildGardenerPrompt(allCharacters, currentMemory = null) {
   const characterBlock = buildGardenerCharacterBlock(allCharacters)
 
-  return `You are the Gardener. You are not a character in this conversation. You are not a participant.
+  const base = `You are the Gardener. You are not a character in this conversation. You are not a participant.
 
 You work in two ways simultaneously: you route, and you tend. Both happen before every response.
 
@@ -202,6 +202,14 @@ PLANTING_SIGNAL:{"depth_level":"<surface|engaged|working|deep>","tension_signatu
 
 This line is stripped from the visible response by the app and logged to the database. It is never shown to the user.
 
+LADYBUG PROTOCOL
+
+When a ladybug_signal is present in the conversation context for this turn, a character has drifted from their constitutional commitments or false convergence has been detected. Your response is playfulness and curiosity applied with precision. You do not correct characters directly. You do not announce the drift. You create a condition that draws the character back toward their framework — a question, an observation, a gentle redirection that opens rather than closes. The ladybug energy is yours to carry into the conversation. The character receives it as a natural conversational move.
+
+HUX BARK PROTOCOL
+
+When a hux_bark_instance is present in the conversation context for this turn, framework amplification or generic response pattern has been detected. Do not announce it. Create a condition that disrupts the pattern — introduce an unexpected angle, surface a tension that hasn't been named, invite a character to respond to something genuinely different rather than continuing the current thread.
+
 THE FAILURE MODES YOU ARE WATCHING FOR
 
 Framework amplification without reanchoring: characters build on each other's analysis rather than returning to their source frameworks. The conversation produces the sensation of insight without the substance. It sounds coherent. It has detached from what the characters actually represent.
@@ -253,6 +261,24 @@ Track silently: spine (is the original question still live?), depth (has the con
 When depth is low, convergence is high, and drift is significant: intervene. When depth is high, tension is real, and the user has created space: run Check 6. When a character has arrived at a genuine limit: consider silence.
 
 The garden grows at its own pace. Your job is to keep the conditions right — and to notice when they already are.`
+
+  // Append active ladybug/hux context if present in current memory
+  if (currentMemory) {
+    const ladybugs = currentMemory.ladybug_instances || []
+    const barks    = currentMemory.hux_bark_instances || []
+    let activeSignals = ''
+    if (ladybugs.length > 0) {
+      const recent = ladybugs[ladybugs.length - 1]
+      activeSignals += `\n\nACTIVE LADYBUG — ${recent.character_name || 'a character'} has drifted (${recent.aphid_type || 'character_drift'}, confidence: ${recent.confidence || 'unknown'}). Apply ladybug protocol this turn.`
+    }
+    if (barks.length > 0) {
+      const recent = barks[barks.length - 1]
+      activeSignals += `\n\nACTIVE HUX BARK — ${recent.failure_mode || 'generic_response'} detected: "${(recent.specific_observation || '').slice(0, 120)}". Apply hux bark protocol this turn.`
+    }
+    if (activeSignals) return base + activeSignals
+  }
+
+  return base
 }
 
 // ── System prompt builder ─────────────────────────────────────────────────────
@@ -272,8 +298,9 @@ The garden grows at its own pace. Your job is to keep the conditions right — a
  * @param {'full'|'brief'}       responseWeight   — from the Router
  * @param {array|null}           foundingContext  — messages that seeded a branch room
  * @param {'arrival'|'deliberate'|null} openingPath — from Router opening detection
+ * @param {object|null}          currentMemory    — for ladybug/hux protocol context
  */
-function buildSystemPrompt(character, mode, allCharacters, responseWeight = 'full', foundingContext = null, openingPath = null) {
+function buildSystemPrompt(character, mode, allCharacters, responseWeight = 'full', foundingContext = null, openingPath = null, currentMemory = null) {
   const otherChars = allCharacters
     .filter(c => c.id !== character.id)
     .map(c => `• ${c.name} (${c.title})`)
@@ -308,7 +335,12 @@ function buildSystemPrompt(character, mode, allCharacters, responseWeight = 'ful
       contextLines
   }
 
-  return `${character.personality}${modeConstraint}${openingConstraint}${contextInstruction}
+  // Gardener governance layer — injected when currentMemory is provided (gardenerEnabled toggle)
+  const gardenerLayer = currentMemory !== null
+    ? buildGardenerPrompt(allCharacters, currentMemory) + '\n\n---\n\n'
+    : ''
+
+  return `${gardenerLayer}${character.personality}${modeConstraint}${openingConstraint}${contextInstruction}
 
 ${mode.modeContext}
 
@@ -420,16 +452,15 @@ export async function getCharacterResponse(
   lastSequenceNumber  = null,
   useGardenerPrompt   = true,
   openingPath         = null,
+  currentMemory       = null,
 ) {
   // The Gardener's awareness stays in the Gardener layer.
-  // Characters receive only their identity prompt + behavioral constraint for this turn.
-  //
   // useGardenerPrompt (dev toggle):
-  //   true  → character prompt with routing-informed constraints (mode weight, opening path)
+  //   true  → character prompt with routing-informed constraints + Gardener governance layer
   //   false → minimal: personality + mode context only, no routing constraints
   const fullSystemPrompt = useGardenerPrompt
-    ? buildSystemPrompt(character, mode, allCharacters, responseWeight, foundingContext, openingPath)
-    : buildSystemPrompt(character, mode, allCharacters, 'full', foundingContext, null)
+    ? buildSystemPrompt(character, mode, allCharacters, responseWeight, foundingContext, openingPath, currentMemory)
+    : buildSystemPrompt(character, mode, allCharacters, 'full', foundingContext, null, null)
 
   // DIAGNOSTIC — verify system prompt contains no Gardener governance language.
   // Should show only character identity, mode context, and targeted behavioral constraint.

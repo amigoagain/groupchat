@@ -13,6 +13,7 @@ const MODE_COLORS = {
   discuss: '#a855f7',
   plan:    '#f59e0b',
   advise:  '#22c55e',
+  stroll:  '#6b7c47',
 }
 
 function getPreview(room) {
@@ -67,8 +68,10 @@ function RoomCard({ room, onOpen, onRemove, showRemove }) {
     onRemove(room.code)
   }
 
-  const roomName  = generateRoomName(room.characters || [])
-  const preview   = getPreview(room)
+  const isStroll  = room.mode?.id === 'stroll' || room.roomMode === 'stroll'
+  const isDormant = Boolean(room.dormant_at || room.dormantAt)
+  const roomName  = isStroll ? 'Stroll' : generateRoomName(room.characters || [])
+  const preview   = isStroll ? (isDormant ? 'dormant · branchable' : 'stroll in progress') : getPreview(room)
   const modeName  = room.mode?.name || 'Chat'
   const modeId    = room.mode?.id   || 'chat'
   const modeColor = MODE_COLORS[modeId] || '#4f7cff'
@@ -79,13 +82,23 @@ function RoomCard({ room, onOpen, onRemove, showRemove }) {
       className={`inbox-card-wrapper${swiped ? ' swiped' : ''}`}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
+      style={isDormant && isStroll ? { opacity: 0.7 } : {}}
     >
-      <button className="inbox-card" onClick={() => onOpen(room.code)}>
+      <button
+        className="inbox-card"
+        onClick={() => onOpen(room.code)}
+        style={isDormant && isStroll ? { borderLeft: '3px solid #6b7c47' } : {}}
+      >
         <AvatarCluster characters={room.characters} />
 
         <div className="inbox-card-content">
           <div className="inbox-card-top">
-            <span className="inbox-card-name">{roomName}</span>
+            <span className="inbox-card-name">
+              {roomName}
+              {isStroll && isDormant && (
+                <span style={{ fontSize: '10px', color: '#6b7c47', marginLeft: '6px', fontFamily: 'monospace' }}>dormant</span>
+              )}
+            </span>
             <span className="inbox-card-time">{timestamp}</span>
           </div>
           <div className="inbox-card-preview">{preview}</div>
@@ -98,7 +111,7 @@ function RoomCard({ room, onOpen, onRemove, showRemove }) {
                 borderColor: `${modeColor}44`,
               }}
             >
-              {modeName}
+              {isStroll ? '🌿 Stroll' : modeName}
             </span>
 
             {/* Visibility badge */}

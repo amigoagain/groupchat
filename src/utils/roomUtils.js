@@ -54,6 +54,9 @@ export function rowToRoom(data) {
     branchedAtSequence:  data.branched_at_sequence || null,
     branchDepth:         data.branch_depth || 0,
     foundingContext:     data.founding_context || null,
+    dormantAt:           data.dormant_at || null,
+    roomMode:            data.room_mode || null,
+    strollTurnCount:     data.stroll_turn_count || null,
   }
 }
 
