@@ -6401,3 +6401,14 @@ input {
 .kepos-drawer {
   /* inline-styled in component */
 }
+
+/* ============================================================
+   ENTRY SCREEN — textarea placeholder colour
+   (inline style cannot reach ::placeholder on iOS Safari)
+   ============================================================ */
+
+/* Frosted-glass input bar: placeholder stays in muted olive/stone */
+.entry-textarea::placeholder {
+  color:   #7a8868;
+  opacity: 1; /* Firefox resets to 0.54 by default */
+}

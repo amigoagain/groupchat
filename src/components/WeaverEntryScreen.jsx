@@ -92,7 +92,7 @@ function buildRhizome(w, h) {
 function initRhizome(canvas) {
   const ctx = canvas.getContext('2d')
   let w = canvas.width  = window.innerWidth
-  let h = canvas.height = window.innerHeight
+  let h = canvas.height = (window.visualViewport ? window.visualViewport.height : window.innerHeight)
 
   let data = buildRhizome(w, h)
   let tips = []
@@ -213,9 +213,15 @@ function initRhizome(canvas) {
 
   raf = requestAnimationFrame(tick)
 
+  function getVH() {
+    // Use visualViewport height when available so the canvas doesn't
+    // render behind the keyboard on iOS
+    return window.visualViewport ? window.visualViewport.height : window.innerHeight
+  }
+
   function resize() {
     w = canvas.width  = window.innerWidth
-    h = canvas.height = window.innerHeight
+    h = canvas.height = getVH()
     offscreen.width  = w
     offscreen.height = h
     offCtx = offscreen.getContext('2d')
@@ -224,10 +230,13 @@ function initRhizome(canvas) {
     renderOffscreen()
   }
   window.addEventListener('resize', resize)
+  // visualViewport fires its own resize when keyboard opens/closes — cover both
+  window.visualViewport?.addEventListener('resize', resize)
 
   return () => {
     cancelAnimationFrame(raf)
     window.removeEventListener('resize', resize)
+    window.visualViewport?.removeEventListener('resize', resize)
   }
 }
 
@@ -250,6 +259,28 @@ export default function WeaverEntryScreen({
   const inputRef   = useRef(null)
   const inputBarRef = useRef(null)
 
+  // Lock html/body scroll while entry screen is mounted.
+  // Prevents iOS Safari rubber-band scrolling revealing content behind the
+  // fixed container — reverts on unmount so other screens are unaffected.
+  useEffect(() => {
+    const html = document.documentElement
+    const body = document.body
+    const prevHtmlOverflow = html.style.overflow
+    const prevBodyOverflow = body.style.overflow
+    const prevHtmlPos      = html.style.position
+    const prevHtmlHeight   = html.style.height
+    html.style.overflow = 'hidden'
+    html.style.position = 'fixed'
+    html.style.height   = '100%'
+    body.style.overflow = 'hidden'
+    return () => {
+      html.style.overflow = prevHtmlOverflow
+      html.style.position = prevHtmlPos
+      html.style.height   = prevHtmlHeight
+      body.style.overflow = prevBodyOverflow
+    }
+  }, [])
+
   // Canvas rhizome
   useEffect(() => {
     const canvas = canvasRef.current
@@ -258,23 +289,32 @@ export default function WeaverEntryScreen({
     return cleanup
   }, [])
 
-  // visualViewport: keep input bar above keyboard on iOS
+  // visualViewport: keep input bar above keyboard on iOS.
+  // Uses transform: translateY() — more reliable than bottom manipulation on iOS.
+  // keyboardHeight = difference between layout viewport and visual viewport.
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
-    const handle = () => {
+
+    function updatePosition() {
       const bar = inputBarRef.current
       if (!bar) return
-      const keyboardHeight = window.innerHeight - (vv.height + vv.offsetTop)
-      bar.style.bottom = keyboardHeight > 10
-        ? `${keyboardHeight + 8}px`
-        : 'calc(24px + max(0px, env(safe-area-inset-bottom)))'
+      // Layout viewport height stays constant on iOS; visual viewport shrinks when keyboard opens
+      const keyboardHeight = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      if (keyboardHeight > 10) {
+        // Lift the bar above the keyboard with a small clearance gap
+        bar.style.transform = `translateY(-${keyboardHeight}px)`
+      } else {
+        // Keyboard closed — return to resting position
+        bar.style.transform = ''
+      }
     }
-    vv.addEventListener('resize', handle)
-    vv.addEventListener('scroll', handle)
+
+    vv.addEventListener('resize', updatePosition)
+    vv.addEventListener('scroll', updatePosition)
     return () => {
-      vv.removeEventListener('resize', handle)
-      vv.removeEventListener('scroll', handle)
+      vv.removeEventListener('resize', updatePosition)
+      vv.removeEventListener('scroll', updatePosition)
     }
   }, [])
 
@@ -356,7 +396,20 @@ export default function WeaverEntryScreen({
   ]
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#f5f2ec', overflow: 'hidden' }}>
+    <div style={{
+      position:          'fixed',
+      top:               0,
+      left:              0,
+      right:             0,
+      bottom:            0,
+      width:             '100%',
+      height:            '100%',
+      background:        '#f5f2ec',
+      overflow:          'hidden',
+      // Belt-and-suspenders: stop iOS rubber-band scroll at the element level
+      overscrollBehavior: 'none',
+      touchAction:       'none',
+    }}>
 
       {/* Canvas layer */}
       <canvas
@@ -499,80 +552,99 @@ export default function WeaverEntryScreen({
         </nav>
       </div>
 
-      {/* Input bar — fixed at bottom */}
+      {/* Input bar — fixed at bottom, lifted by JS translateY when keyboard opens.
+           Centering via margin: auto on inner wrapper (not transform) so that
+           the outer ref div can use transform: translateY() freely for keyboard lift. */}
       <div
         ref={inputBarRef}
         style={{
-          position:      'fixed',
-          bottom:        'calc(24px + max(0px, env(safe-area-inset-bottom)))',
-          left:          '50%',
-          transform:     'translateX(-50%)',
-          width:         '100%',
-          maxWidth:      '520px',
-          padding:       '0 20px',
-          zIndex:        100,
-          boxSizing:     'border-box',
+          position:       'fixed',
+          bottom:         '0',
+          left:           '0',
+          right:          '0',
+          zIndex:         100,
+          // Safe-area padding so bar clears home indicator at rest.
+          // When keyboard is open, iOS sets safe-area-inset-bottom = 0,
+          // so the padding naturally disappears without extra JS logic.
+          paddingBottom:  'calc(12px + env(safe-area-inset-bottom, 0px))',
+          paddingTop:     '0',
+          // translateY applied by JS when keyboard opens — starts neutral
         }}
       >
+        {/* Inner wrapper: max-width + horizontal padding, centred via margin */}
         <div style={{
-          display:      'flex',
-          alignItems:   'flex-end',
-          gap:          '10px',
-          background:   'rgba(26, 26, 24, 0.90)',
-          border:       '1px solid rgba(107, 124, 71, 0.25)',
-          borderRadius: '12px',
-          padding:      '10px 12px',
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
-          boxShadow:    '0 2px 20px rgba(0,0,0,0.18)',
+          maxWidth:   '520px',
+          margin:     '0 auto',
+          padding:    '0 20px 0',
         }}>
-          <textarea
-            ref={inputRef}
-            value={inputText}
-            onChange={handleTextareaChange}
-            onKeyDown={handleKeyDown}
-            placeholder="what are you curious about?"
-            disabled={isSubmitting}
-            rows={1}
-            style={{
-              flex:        1,
-              background:  'transparent',
-              border:      'none',
-              outline:     'none',
-              resize:      'none',
-              color:       '#e8e4dc',
-              fontFamily:  'Georgia, serif',
-              fontSize:    '15px',
-              lineHeight:  '1.5',
-              padding:     '2px 0',
-              minHeight:   '24px',
-              maxHeight:   '120px',
-              overflow:    'auto',
-              caretColor:  '#6b7c47',
-            }}
-          />
-          <button
-            onClick={handleSubmit}
-            disabled={!inputText.trim() || isSubmitting}
-            aria-label="Begin"
-            style={{
-              flexShrink:   0,
-              width:        '32px',
-              height:       '32px',
-              background:   inputText.trim() && !isSubmitting ? '#4a5a24' : 'rgba(255,255,255,0.06)',
-              border:       'none',
-              borderRadius: '8px',
-              cursor:       inputText.trim() && !isSubmitting ? 'pointer' : 'default',
-              display:      'flex',
-              alignItems:   'center',
-              justifyContent: 'center',
-              transition:   'background 0.2s',
-              color:        inputText.trim() && !isSubmitting ? '#e8e4dc' : '#5a5a5a',
-              fontSize:     '14px',
-            }}
-          >
-            {isSubmitting ? '·' : '↑'}
-          </button>
+          {/* Frosted-glass pill */}
+          <div style={{
+            display:      'flex',
+            alignItems:   'flex-end',
+            gap:          '10px',
+            background:   'rgba(245, 241, 234, 0.82)',
+            WebkitBackdropFilter: 'blur(12px)',
+            backdropFilter:       'blur(12px)',
+            border:       '1px solid rgba(107, 124, 71, 0.18)',
+            borderRadius: '14px',
+            padding:      '10px 12px',
+            boxShadow:    '0 2px 16px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)',
+          }}>
+            <textarea
+              ref={inputRef}
+              className="entry-textarea"
+              value={inputText}
+              onChange={handleTextareaChange}
+              onKeyDown={handleKeyDown}
+              placeholder="what are you curious about?"
+              disabled={isSubmitting}
+              rows={1}
+              style={{
+                flex:        1,
+                background:  'transparent',
+                border:      'none',
+                outline:     'none',
+                resize:      'none',
+                // Warm stone — legible on light frosted background
+                color:       '#2e3420',
+                fontFamily:  'Georgia, serif',
+                fontSize:    '15px',
+                lineHeight:  '1.5',
+                padding:     '2px 0',
+                minHeight:   '24px',
+                maxHeight:   '120px',
+                overflow:    'auto',
+                caretColor:  '#4a5a24',
+                // Restore touch-action on the textarea itself so iOS text
+                // selection and scrolling within the textarea work normally.
+                // The parent has touchAction:'none' to block rubber-band
+                // scrolling on the background; the textarea is an exception.
+                touchAction: 'auto',
+              }}
+            />
+            <button
+              onClick={handleSubmit}
+              disabled={!inputText.trim() || isSubmitting}
+              aria-label="Begin"
+              style={{
+                flexShrink:     0,
+                width:          '32px',
+                height:         '32px',
+                background:     inputText.trim() && !isSubmitting ? '#4a5a24' : 'rgba(74, 90, 36, 0.12)',
+                border:         'none',
+                borderRadius:   '8px',
+                cursor:         inputText.trim() && !isSubmitting ? 'pointer' : 'default',
+                display:        'flex',
+                alignItems:     'center',
+                justifyContent: 'center',
+                transition:     'background 0.2s',
+                color:          inputText.trim() && !isSubmitting ? '#f5f2ec' : '#8a9a70',
+                fontSize:       '14px',
+              }}
+            >
+              {isSubmitting ? '·' : '↑'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
