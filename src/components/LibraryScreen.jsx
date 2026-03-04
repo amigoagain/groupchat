@@ -210,7 +210,7 @@ const S = {
     borderRadius: '4px',
     color:        '#e0dbd0',
     fontFamily:   'Georgia, serif',
-    fontSize:     '14px',
+    fontSize:     '16px',
     padding:      '12px',
     resize:       'vertical',
     outline:      'none',
