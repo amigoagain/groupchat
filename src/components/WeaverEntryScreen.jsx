@@ -281,6 +281,22 @@ export default function WeaverEntryScreen({
     return cleanup
   }, [])
 
+  // Block touchmove scroll on the container but allow it on the textarea.
+  // touchmove preventDefault() stops iOS rubber-band and canvas scroll without
+  // creating a touchAction parent/child conflict.
+  useEffect(() => {
+    const container = document.querySelector('.kepos-entry-root')
+    if (!container) return
+    const preventScroll = (e) => {
+      if (e.target === inputRef.current) return
+      e.preventDefault()
+    }
+    container.addEventListener('touchmove', preventScroll, { passive: false })
+    return () => {
+      container.removeEventListener('touchmove', preventScroll)
+    }
+  }, [])
+
   // Close drawer on outside click
   useEffect(() => {
     if (!drawerOpen) return
@@ -354,28 +370,20 @@ export default function WeaverEntryScreen({
   ]
 
   return (
-    <div style={{
-      position:          'fixed',
-      top:               0,
-      left:              0,
-      right:             0,
-      bottom:            0,
-      width:             '100%',
-      height:            '100dvh',
-      background:        '#f5f2ec',
-      overflow:          'hidden',
-      // touchAction:'none' blocks all scroll gestures on the canvas/background.
-      // The onTouchStart handler below allows touches through to the textarea
-      // without changing the parent touchAction value, avoiding the iOS
-      // conflict that caused layout shift.
-      overscrollBehavior: 'none',
-      touchAction:       'none',
-    }}
-    onTouchStart={(e) => {
-      if (e.target !== inputRef.current) {
-        e.preventDefault()
-      }
-    }}>
+    <div
+      className="kepos-entry-root"
+      style={{
+        position:          'fixed',
+        top:               0,
+        left:              0,
+        right:             0,
+        bottom:            0,
+        width:             '100%',
+        height:            '100dvh',
+        background:        '#f5f2ec',
+        overflow:          'hidden',
+        overscrollBehavior: 'none',
+      }}>
 
       {/* Canvas layer */}
       <canvas
@@ -577,10 +585,6 @@ export default function WeaverEntryScreen({
                 maxHeight:   '120px',
                 overflow:    'auto',
                 caretColor:  '#4a5a24',
-                // manipulation: disables double-tap zoom but preserves tap and
-                // text selection. Avoids the 'auto' vs 'none' parent conflict
-                // that caused iOS to briefly shift the layout on tap.
-                touchAction: 'manipulation',
               }}
             />
             <button
