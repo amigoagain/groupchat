@@ -364,9 +364,12 @@ export default function WeaverEntryScreen({
       height:            '100dvh',
       background:        '#f5f2ec',
       overflow:          'hidden',
-      // Belt-and-suspenders: stop iOS rubber-band scroll at the element level
+      // Belt-and-suspenders: stop iOS rubber-band scroll at the element level.
+      // pan-x pan-y allows iOS to resolve touch conflicts cleanly — no actual
+      // scrolling occurs because the container is position:fixed + overflow:hidden,
+      // but 'none' was causing a visible layout shift on textarea tap.
       overscrollBehavior: 'none',
-      touchAction:       'none',
+      touchAction:       'pan-x pan-y',
     }}>
 
       {/* Canvas layer */}
@@ -569,11 +572,10 @@ export default function WeaverEntryScreen({
                 maxHeight:   '120px',
                 overflow:    'auto',
                 caretColor:  '#4a5a24',
-                // Restore touch-action on the textarea itself so iOS text
-                // selection and scrolling within the textarea work normally.
-                // The parent has touchAction:'none' to block rubber-band
-                // scrolling on the background; the textarea is an exception.
-                touchAction: 'auto',
+                // manipulation: disables double-tap zoom but preserves tap and
+                // text selection. Avoids the 'auto' vs 'none' parent conflict
+                // that caused iOS to briefly shift the layout on tap.
+                touchAction: 'manipulation',
               }}
             />
             <button
