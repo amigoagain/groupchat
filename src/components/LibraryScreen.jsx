@@ -1,20 +1,34 @@
 /**
  * LibraryScreen.jsx
  *
- * The Library — central repository for governance reports, character constitutions,
- * journal entries, and user private notebooks.
+ * The Library — central repository for public and private Kepos knowledge.
  *
- * Accessible via /library command in any conversation.
- * Public sections: Architecture, Founding Document, Character Constitutions,
- *   Bugs Journal, Weather Journal, Gardener Journal, Governance Reports, Public Conversations
- * Private sections: My Conversations, My Notebook
+ * Two top-level tabs: Public | Private
+ *
+ * Public:
+ *   Architecture — operative terms glossary + garden diagram card
+ *   Founding Document — placeholder
+ *   Reference Cases — case001.md and case002.md
+ *   Journals — Gardener's, Weatherman's, Entomologist's
+ *   Governance Reports — governance_failure library_reports
+ *   Public Conversations — read-only / moderated-public rooms
+ *
+ * Private (auth-gated):
+ *   My Conversations — user's private rooms; dormant strolls show Branch / Continue
+ *   My Notebook — CRUD for notebook_entries
  */
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
+import { fetchMyRooms, fetchAllRooms } from '../utils/roomUtils.js'
+import { getVisitedRoomCodes } from '../utils/inboxUtils.js'
+import { relativeTime } from '../utils/inboxUtils.js'
 
-// ── Styles ────────────────────────────────────────────────────────────────────
+// ── Raw markdown imports ───────────────────────────────────────────────────────
+import case001Raw from '../data/case001.md?raw'
+import case002Raw from '../data/case002.md?raw'
 
+// ── Inline styles ─────────────────────────────────────────────────────────────
 const S = {
   screen: {
     position:    'fixed',
@@ -22,8 +36,8 @@ const S = {
     background:  '#111',
     color:       '#e0dbd0',
     fontFamily:  'Georgia, serif',
-    overflowY:   'auto',
-    zIndex:      1000,
+    overflowY:   'hidden',
+    zIndex:      900,
     display:     'flex',
     flexDirection: 'column',
   },
@@ -31,99 +45,167 @@ const S = {
     display:        'flex',
     alignItems:     'center',
     justifyContent: 'space-between',
-    padding:        '16px 24px',
+    padding:        '14px 20px',
     borderBottom:   '1px solid #2a2a2a',
     flexShrink:     0,
+    gap:            '12px',
+  },
+  headerLeft: {
+    display:    'flex',
+    alignItems: 'center',
+    gap:        '12px',
+  },
+  backBtn: {
+    background:   'none',
+    border:       'none',
+    color:        '#6b7c47',
+    fontSize:     '18px',
+    cursor:       'pointer',
+    padding:      '4px 8px 4px 0',
+    lineHeight:   1,
+    display:      'flex',
+    alignItems:   'center',
   },
   title: {
-    fontSize:      '14px',
-    letterSpacing: '0.1em',
+    fontSize:      '13px',
+    letterSpacing: '0.12em',
     textTransform: 'uppercase',
     color:         '#6b7c47',
     fontFamily:    'monospace',
     fontWeight:    600,
   },
-  closeBtn: {
-    background:   'none',
-    border:       'none',
-    color:        '#5a5a5a',
-    fontSize:     '20px',
-    cursor:       'pointer',
-    padding:      '4px 8px',
-    lineHeight:   1,
+  tabs: {
+    display:        'flex',
+    borderBottom:   '1px solid #2a2a2a',
+    flexShrink:     0,
   },
+  tab: (active) => ({
+    flex:            1,
+    padding:         '10px 0',
+    background:      'none',
+    border:          'none',
+    borderBottom:    active ? '2px solid #6b7c47' : '2px solid transparent',
+    color:           active ? '#8faf52' : '#5a5a5a',
+    fontSize:        '12px',
+    letterSpacing:   '0.08em',
+    textTransform:   'uppercase',
+    fontFamily:      'monospace',
+    cursor:          'pointer',
+    transition:      'color 0.15s',
+  }),
   body: {
     display:   'flex',
     flex:      1,
     minHeight: 0,
+    overflow:  'hidden',
   },
   sidebar: {
-    width:        '200px',
+    width:        '180px',
     borderRight:  '1px solid #2a2a2a',
-    padding:      '20px 0',
+    padding:      '16px 0',
     flexShrink:   0,
     overflowY:    'auto',
-  },
-  sidebarSection: {
-    padding:      '8px 16px 4px',
-    fontSize:     '10px',
-    letterSpacing: '0.08em',
-    textTransform: 'uppercase',
-    color:        '#444',
-    fontFamily:   'monospace',
   },
   sidebarItem: (active) => ({
     display:    'block',
     width:      '100%',
     textAlign:  'left',
-    padding:    '7px 16px',
-    background: active ? '#1e2a10' : 'none',
+    padding:    '8px 16px',
+    background: active ? '#1a2610' : 'none',
     border:     'none',
-    color:      active ? '#8faf52' : '#8a8478',
+    color:      active ? '#8faf52' : '#6a6a6a',
     fontSize:   '13px',
     fontFamily: 'Georgia, serif',
     cursor:     'pointer',
     borderLeft: active ? '2px solid #6b7c47' : '2px solid transparent',
+    lineHeight: 1.3,
   }),
   content: {
     flex:     1,
-    padding:  '24px 32px',
+    padding:  '24px 28px 40px',
     overflowY: 'auto',
+    maxWidth:  '760px',
   },
   sectionTitle: {
-    fontSize:     '18px',
+    fontSize:     '17px',
     color:        '#d4cfc5',
     marginBottom: '20px',
     fontWeight:   'normal',
+    letterSpacing: '0.01em',
   },
   card: {
-    background:   '#1a1a1a',
+    background:   '#181818',
     border:       '1px solid #2a2a2a',
     borderRadius: '4px',
-    padding:      '16px',
-    marginBottom: '12px',
+    padding:      '18px 20px',
+    marginBottom: '14px',
+  },
+  cardTitle: {
+    fontSize:     '14px',
+    fontWeight:   'bold',
+    color:        '#c8c3b8',
+    marginBottom: '10px',
   },
   cardMeta: {
     fontSize:   '11px',
-    color:      '#4a4a4a',
+    color:      '#3a3a3a',
     fontFamily: 'monospace',
-    marginTop:  '8px',
+    marginTop:  '10px',
+  },
+  termWord: {
+    fontSize:      '12px',
+    letterSpacing: '0.1em',
+    textTransform: 'uppercase',
+    color:         '#6b7c47',
+    fontFamily:    'monospace',
+    fontWeight:    600,
+    marginBottom:  '4px',
+    marginTop:     '20px',
+  },
+  termDef: {
+    fontSize:   '13px',
+    color:      '#a8a39a',
+    lineHeight: 1.7,
+  },
+  placeholderItalic: {
+    fontSize:   '13px',
+    color:      '#3a3a3a',
+    fontFamily: 'monospace',
+    fontStyle:  'italic',
+    lineHeight: 1.6,
+  },
+  caseSection: {
+    fontSize:      '11px',
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    color:         '#4a4a4a',
+    fontFamily:    'monospace',
+    marginTop:     '16px',
+    marginBottom:  '6px',
+  },
+  caseBody: {
+    fontSize:   '13px',
+    color:      '#9a9590',
+    lineHeight: 1.7,
+    whiteSpace: 'pre-wrap',
   },
   loading: {
-    color:    '#4a4a4a',
+    color:    '#3a3a3a',
     fontFamily: 'monospace',
-    fontSize:  '13px',
+    fontSize:  '12px',
+    padding:   '20px 0',
   },
   empty: {
     color:    '#3a3a3a',
     fontFamily: 'monospace',
-    fontSize:  '13px',
+    fontSize:  '12px',
     fontStyle: 'italic',
+    padding:   '12px 0',
   },
   notebookInput: {
     width:        '100%',
-    minHeight:    '100px',
-    background:   '#181818',
+    minHeight:    '90px',
+    background:   '#141414',
     border:       '1px solid #2a2a2a',
     borderRadius: '4px',
     color:        '#e0dbd0',
@@ -136,110 +218,165 @@ const S = {
     marginBottom: '10px',
   },
   btn: (variant) => ({
-    padding:      '8px 16px',
-    background:   variant === 'primary' ? '#4a5a24' : 'transparent',
+    padding:      '7px 14px',
+    background:   variant === 'primary' ? '#3a4a1e' : 'transparent',
     border:       `1px solid ${variant === 'primary' ? '#5a6b2e' : '#3a3a3a'}`,
-    borderRadius: '4px',
-    color:        variant === 'primary' ? '#e8e4dc' : '#6a6a6a',
+    borderRadius: '3px',
+    color:        variant === 'primary' ? '#c8e4a0' : '#5a5a5a',
     fontFamily:   'monospace',
-    fontSize:     '12px',
+    fontSize:     '11px',
     cursor:       'pointer',
-    marginRight:  '8px',
+    marginRight:  '6px',
+  }),
+  strollActionRow: {
+    display:    'flex',
+    gap:        '8px',
+    marginTop:  '12px',
+    flexWrap:   'wrap',
+  },
+  strollBtn: (variant) => ({
+    padding:      '6px 12px',
+    background:   'transparent',
+    border:       `1px solid ${variant === 'branch' ? '#3a5a8a' : '#4a5a24'}`,
+    borderRadius: '3px',
+    color:        variant === 'branch' ? '#6a9aca' : '#8faf52',
+    fontFamily:   'monospace',
+    fontSize:     '11px',
+    cursor:       'pointer',
   }),
 }
 
-// ── Static architecture text ───────────────────────────────────────────────────
+// ── Operative Terms ───────────────────────────────────────────────────────────
 
-const ARCHITECTURE_TEXT = `Kepos is a multi-character conversation platform with an active governance layer.
+const OPERATIVE_TERMS = [
+  { term: 'KEPOS', definition: 'The platform. Ancient Greek for garden. The name reflects the organizing metaphor at every level of the system.' },
+  { term: 'THE GARDENER', definition: 'The routing and cultivation layer. Routes who responds, in what order, at what weight. Tends substrate. Does not direct what grows. Based on Annie Dillard\'s constitution: attends before speaking, honest about what she doesn\'t know, does not resolve what should remain open, earns the right to speak.' },
+  { term: 'THE GOOSE', definition: 'Stateless governance signal. Listens always. Holds nothing. Honks twice — once to start a stroll (broadcasting turn count to all agents), once in response to /farmer or governance collapse. Does not interpret. Does not intervene.' },
+  { term: 'BUGS', definition: 'Immune system. Reads character responses against the constitutional layer. Character drift and false convergence are aphids. Releases ladybug signal to the Gardener when found. No voice in the conversation. Sends bugs data to the Library.' },
+  { term: 'HUX', definition: 'Border collie. Monitors for framework amplification and generic response patterns only. Barks when he sees them. Bark goes to the Gardener\'s memory. Always present. Chases the wind.' },
+  { term: 'WEATHER', definition: 'Stateless atmospheric reader. Reads each turn fresh against weather models. Wind, rain, frost, drought. Tornado watch condition only — not fully instrumented. Reports to the Weatherman at the Library. The Gardener feels conditions from lived experience, not from Weather\'s data.' },
+  { term: 'THE WEATHERMAN', definition: 'Human-led weather analysis at the Library. Analyzes Weather reports. Records in the Weatherman\'s journal. Builds understanding of atmospheric patterns across conversations over time.' },
+  { term: 'THE ENTOMOLOGIST', definition: 'Human-led character fidelity analysis at the Library. Analyzes bugs data. Reads character fidelity flags against the constitutional layer. Records in the Entomologist\'s journal.' },
+  { term: 'CONSTITUTIONAL LAYER', definition: 'Five to seven inviolable commitments per canonical character. Written and endorsed by domain experts. Bugs reads against this layer. The Entomologist analyzes against it.' },
+  { term: 'THE STROLL', definition: 'A user-metered pacing and discovery conversation with the Gardener only. Eight seasons across two cycles. Ends in dormancy. Builds substrate — not seeds. What travels forward is what the user chooses to carry into a branch.' },
+  { term: 'MIDDLE NODE', definition: 'The place where genuine emergence occurs. Produced between people with the Gardener as witness and substrate. Not synthesis. Not resolution. Arrival at a shared limit.' },
+  { term: 'WIND', definition: 'Logos. Brings pollen and tornados. Productive friction. Users and characters both generate wind. Nothing grows without it.' },
+  { term: 'RAIN', definition: 'Steady accumulation without escalation. Sustained engagement. The Gardener\'s correct response is patience.' },
+  { term: 'FROST', definition: 'Premature convergence. Primary winter risk.' },
+  { term: 'DROUGHT', definition: 'Energy leaving a conversation that should have momentum. Primary summer risk.' },
+  { term: 'TORNADO', definition: 'The loop of logos as weather. The formal apparatus spinning on itself. Watch condition only. Natural events for natural excesses.' },
+  { term: '/STROLL', definition: 'Opens a stroll conversation. User sets turn count. Gardener only. Eight seasons. Ends in dormancy.' },
+  { term: '/FARMER', definition: 'Steelman and refutation. Applied to character statements and Gardener interventions. Triggers the Goose to collect from all agents. The governance layer\'s own governance.' },
+  { term: '/BUTTERFLY', definition: 'Playfulness and curiosity. Lands lightly on what may have been overlooked. Most valuable in fall.' },
+  { term: '/LIBRARY', definition: 'Opens the Library. Public and private sections.' },
+]
 
-The Gardener routes character responses and tends conversation quality. The Weaver detects relevance and manages character weight. Memory persists conversation state across turns.
+// ── Markdown case parser ──────────────────────────────────────────────────────
 
-New agents added in the March 2026 expansion:
+function parseCase(raw) {
+  if (!raw) return null
+  const lines = raw.split('\n')
+  let title = ''
+  let meta = {}
+  let sections = {}
+  let currentSection = null
+  let currentLines = []
 
-GOOSE — Stateless governance signal agent. Honk 1 fires on stroll initiation, writing turn count to agent_signals. Honk 2 fires on /farmer command or governance collapse, collecting state and writing to library_reports.
+  function flush() {
+    if (currentSection) {
+      sections[currentSection] = currentLines.join('\n').trim()
+    }
+  }
 
-WEATHER — Stateless atmospheric assessment agent. Reads each turn fresh. Detects wind (productive friction), rain (steady accumulation), frost (premature convergence), drought (energy leaving), tornado watch (apparatus spinning on itself). Writes to weather_state only.
+  for (const line of lines) {
+    if (line.startsWith('# ')) {
+      title = line.slice(2).trim()
+    } else if (line.startsWith('**Date:**')) {
+      meta.date = line.replace('**Date:**', '').trim()
+    } else if (line.startsWith('**Room type:**')) {
+      meta.roomType = line.replace('**Room type:**', '').trim()
+    } else if (line.startsWith('**Gardener protocol:**')) {
+      meta.protocol = line.replace('**Gardener protocol:**', '').trim()
+    } else if (line.startsWith('**Account:**')) {
+      meta.account = line.replace('**Account:**', '').trim()
+    } else if (line.startsWith('## ')) {
+      flush()
+      currentSection = line.slice(3).trim()
+      currentLines = []
+    } else if (currentSection) {
+      currentLines.push(line)
+    }
+  }
+  flush()
 
-BUGS — Stateless constitutional assessment agent. Reads character responses against the constitutional layer. Detects character drift and false convergence. Releases ladybug signals to the Gardener when aphids are found.
+  return { title, meta, sections }
+}
 
-HUX — Border collie. Watches for framework amplification and generic response patterns. Barks go to gardener_memory only. He is always present.
+// ── Public section nav items ───────────────────────────────────────────────────
 
-STROLL — A distinct room mode. The Gardener is the only voice. Based on Annie Dillard. Eight seasons across two cycles. Substrate building, not seed planting.
+const PUBLIC_SECTIONS = [
+  { id: 'architecture',     label: 'Architecture' },
+  { id: 'founding',         label: 'Founding Document' },
+  { id: 'cases',            label: 'Reference Cases' },
+  { id: 'journals',         label: 'Journals' },
+  { id: 'governance',       label: 'Governance Reports' },
+  { id: 'public_convos',    label: 'Public Conversations' },
+]
 
-THE LIBRARY — Central repository for all agent reports and human-written journal entries. This screen.`
+const PRIVATE_SECTIONS = [
+  { id: 'my_convos',  label: 'My Conversations' },
+  { id: 'notebook',   label: 'My Notebook' },
+]
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-const SECTIONS = [
-  { id: 'architecture',      label: 'Architecture',          group: 'public' },
-  { id: 'constitutions',     label: 'Character Constitutions', group: 'public' },
-  { id: 'bugs_journal',      label: 'Bugs Journal',          group: 'public' },
-  { id: 'weather_journal',   label: 'Weather Journal',       group: 'public' },
-  { id: 'gardener_journal',  label: 'Gardener Journal',      group: 'public' },
-  { id: 'governance',        label: 'Governance Reports',    group: 'public' },
-  { id: 'notebook',          label: 'My Notebook',           group: 'private' },
-]
-
-export default function LibraryScreen({ onClose }) {
+export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, onContinueStroll }) {
   const { isAuthenticated, userId } = useAuth()
-  const [activeSection, setActiveSection] = useState('architecture')
-  const [data, setData]                   = useState({})
-  const [loading, setLoading]             = useState(false)
 
+  const [activeTab,     setActiveTab]     = useState('public')
+  const [activeSection, setActiveSection] = useState('architecture')
+  const [data,          setData]          = useState({})
+  const [loading,       setLoading]       = useState(false)
+
+  // Section changes also load data
   useEffect(() => {
     loadSection(activeSection)
-  }, [activeSection, userId])
+  }, [activeSection, userId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Switch tab → go to first section in that tab
+  const handleTabSwitch = (tab) => {
+    setActiveTab(tab)
+    setActiveSection(tab === 'public' ? 'architecture' : 'my_convos')
+  }
 
   async function loadSection(section) {
-    if (!supabase) return
     setLoading(true)
     try {
-      if (section === 'architecture') {
-        setData(d => ({ ...d, architecture: ARCHITECTURE_TEXT }))
-      } else if (section === 'constitutions') {
-        const { data: rows } = await supabase
-          .from('constitutional_layer')
-          .select('*')
-          .order('character_name')
-        setData(d => ({ ...d, constitutions: rows || [] }))
-      } else if (section === 'bugs_journal') {
-        const { data: rows } = await supabase
-          .from('library_reports')
-          .select('*')
-          .eq('report_type', 'bugs_data')
-          .order('created_at', { ascending: false })
-          .limit(50)
-        setData(d => ({ ...d, bugs_journal: rows || [] }))
-      } else if (section === 'weather_journal') {
-        const { data: rows } = await supabase
-          .from('library_reports')
-          .select('*')
-          .eq('report_type', 'weather_report')
-          .order('created_at', { ascending: false })
-          .limit(50)
-        setData(d => ({ ...d, weather_journal: rows || [] }))
-      } else if (section === 'gardener_journal') {
-        const { data: rows } = await supabase
-          .from('library_reports')
-          .select('*')
-          .eq('report_type', 'gardener_journal')
-          .order('created_at', { ascending: false })
-          .limit(50)
-        setData(d => ({ ...d, gardener_journal: rows || [] }))
+      if (section === 'architecture' || section === 'founding' || section === 'cases') {
+        // Static sections — no DB fetch needed
+        setLoading(false)
+        return
+      }
+      if (!supabase) { setLoading(false); return }
+
+      if (section === 'journals') {
+        const [g, w, e] = await Promise.all([
+          supabase.from('library_reports').select('*').eq('report_type', 'gardener_journal').order('created_at', { ascending: false }).limit(30),
+          supabase.from('library_reports').select('*').eq('report_type', 'weatherman_journal').order('created_at', { ascending: false }).limit(30),
+          supabase.from('library_reports').select('*').eq('report_type', 'entomologist_journal').order('created_at', { ascending: false }).limit(30),
+        ])
+        setData(d => ({ ...d, gardener_journal: g.data || [], weatherman_journal: w.data || [], entomologist_journal: e.data || [] }))
       } else if (section === 'governance') {
-        const { data: rows } = await supabase
-          .from('library_reports')
-          .select('*')
-          .eq('report_type', 'governance_failure')
-          .order('created_at', { ascending: false })
-          .limit(50)
+        const { data: rows } = await supabase.from('library_reports').select('*').eq('report_type', 'governance_failure').order('created_at', { ascending: false }).limit(50)
         setData(d => ({ ...d, governance: rows || [] }))
+      } else if (section === 'public_convos') {
+        const rooms = await fetchAllRooms()
+        setData(d => ({ ...d, public_convos: rooms || [] }))
+      } else if (section === 'my_convos' && userId) {
+        const rooms = await fetchMyRooms([], userId)
+        setData(d => ({ ...d, my_convos: rooms || [] }))
       } else if (section === 'notebook' && userId) {
-        const { data: rows } = await supabase
-          .from('notebook_entries')
-          .select('*')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false })
+        const { data: rows } = await supabase.from('notebook_entries').select('*').eq('user_id', userId).order('created_at', { ascending: false })
         setData(d => ({ ...d, notebook: rows || [] }))
       }
     } catch (err) {
@@ -248,22 +385,33 @@ export default function LibraryScreen({ onClose }) {
     setLoading(false)
   }
 
-  const visibleSections = isAuthenticated
-    ? SECTIONS
-    : SECTIONS.filter(s => s.group === 'public')
+  const sections = activeTab === 'public' ? PUBLIC_SECTIONS : PRIVATE_SECTIONS
 
   return (
     <div style={S.screen}>
+      {/* Header */}
       <div style={S.header}>
-        <span style={S.title}>Library</span>
-        <button style={S.closeBtn} onClick={onClose} title="Close Library">✕</button>
+        <div style={S.headerLeft}>
+          <button style={S.backBtn} onClick={onBack} title="Back">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
+          <span style={S.title}>Library</span>
+        </div>
       </div>
 
+      {/* Tabs */}
+      <div style={S.tabs}>
+        <button style={S.tab(activeTab === 'public')}  onClick={() => handleTabSwitch('public')}>Public</button>
+        <button style={S.tab(activeTab === 'private')} onClick={() => handleTabSwitch('private')}>Private</button>
+      </div>
+
+      {/* Body */}
       <div style={S.body}>
         {/* Sidebar */}
         <div style={S.sidebar}>
-          <div style={S.sidebarSection}>Public</div>
-          {visibleSections.filter(s => s.group === 'public').map(s => (
+          {sections.map(s => (
             <button
               key={s.id}
               style={S.sidebarItem(activeSection === s.id)}
@@ -272,49 +420,33 @@ export default function LibraryScreen({ onClose }) {
               {s.label}
             </button>
           ))}
-
-          {isAuthenticated && (
-            <>
-              <div style={{ ...S.sidebarSection, marginTop: 16 }}>Private</div>
-              {visibleSections.filter(s => s.group === 'private').map(s => (
-                <button
-                  key={s.id}
-                  style={S.sidebarItem(activeSection === s.id)}
-                  onClick={() => setActiveSection(s.id)}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </>
-          )}
         </div>
 
-        {/* Main content */}
+        {/* Content */}
         <div style={S.content}>
           {loading && <div style={S.loading}>loading…</div>}
 
-          {!loading && activeSection === 'architecture' && (
-            <ArchitectureSection text={data.architecture} />
+          {!loading && activeSection === 'architecture'  && <ArchitectureSection />}
+          {!loading && activeSection === 'founding'      && <FoundingSection />}
+          {!loading && activeSection === 'cases'         && <CasesSection />}
+          {!loading && activeSection === 'journals'      && <JournalsSection data={data} />}
+          {!loading && activeSection === 'governance'    && <GovernanceSection items={data.governance} />}
+          {!loading && activeSection === 'public_convos' && (
+            <PublicConvosSection rooms={data.public_convos} onOpenRoom={onOpenRoom} />
           )}
-          {!loading && activeSection === 'constitutions' && (
-            <ConstitutionsSection items={data.constitutions} />
-          )}
-          {!loading && activeSection === 'bugs_journal' && (
-            <ReportSection items={data.bugs_journal} title="Bugs Journal" />
-          )}
-          {!loading && activeSection === 'weather_journal' && (
-            <ReportSection items={data.weather_journal} title="Weather Journal" />
-          )}
-          {!loading && activeSection === 'gardener_journal' && (
-            <ReportSection items={data.gardener_journal} title="Gardener Journal" />
-          )}
-          {!loading && activeSection === 'governance' && (
-            <ReportSection items={data.governance} title="Governance Reports" />
+          {!loading && activeSection === 'my_convos' && (
+            <MyConvosSection
+              rooms={data.my_convos}
+              onOpenRoom={onOpenRoom}
+              onOpenBranchConfig={onOpenBranchConfig}
+              onContinueStroll={onContinueStroll}
+            />
           )}
           {!loading && activeSection === 'notebook' && (
             <NotebookSection
               items={data.notebook}
               userId={userId}
+              isAuthenticated={isAuthenticated}
               onRefresh={() => loadSection('notebook')}
             />
           )}
@@ -324,137 +456,364 @@ export default function LibraryScreen({ onClose }) {
   )
 }
 
-// ── Section components ────────────────────────────────────────────────────────
+// ── Architecture section ──────────────────────────────────────────────────────
 
-function ArchitectureSection({ text }) {
+function ArchitectureSection() {
+  const [activeView, setActiveView] = useState('terms') // 'terms' | 'garden'
+
   return (
     <div>
       <h2 style={S.sectionTitle}>Architecture</h2>
-      <div style={{
-        whiteSpace:  'pre-wrap',
-        lineHeight:  1.7,
-        fontSize:    '14px',
-        color:       '#c0bab0',
-        maxWidth:    '640px',
-      }}>
-        {text || 'Loading…'}
+
+      {/* Two view toggles */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+        <button
+          style={{ ...S.btn(activeView === 'terms' ? 'primary' : undefined) }}
+          onClick={() => setActiveView('terms')}
+        >
+          Operative Terms
+        </button>
+        <button
+          style={{ ...S.btn(activeView === 'garden' ? 'primary' : undefined) }}
+          onClick={() => setActiveView('garden')}
+        >
+          The Garden
+        </button>
+      </div>
+
+      {activeView === 'terms' && (
+        <div>
+          {OPERATIVE_TERMS.map(({ term, definition }) => (
+            <div key={term}>
+              <div style={S.termWord}>{term}</div>
+              <div style={S.termDef}>{definition}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeView === 'garden' && (
+        <div style={S.card}>
+          <div style={S.cardTitle}>The Garden</div>
+          <div style={S.placeholderItalic}>
+            System architecture diagram. Coming soon.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Founding Document section ─────────────────────────────────────────────────
+
+function FoundingSection() {
+  return (
+    <div>
+      <h2 style={S.sectionTitle}>Founding Document</h2>
+      <div style={S.card}>
+        <div style={S.cardTitle}>Founding Document</div>
+        <div style={S.placeholderItalic}>
+          This document is being distilled. It will appear here when it is ready to be read.
+        </div>
       </div>
     </div>
   )
 }
 
-function ConstitutionsSection({ items }) {
-  const { data: allCharacters } = { data: [] } // placeholder — constitutions come from DB
+// ── Reference Cases section ───────────────────────────────────────────────────
 
-  // Known characters from the system (for placeholder display)
-  const KNOWN_CHARACTERS = [
-    'Socrates', 'Elon Musk', 'Oprah Winfrey', 'Sun Tzu', 'Marie Curie',
-    'Sigmund Freud', 'Warren Buffett', 'Maya Angelou', 'Steve Jobs',
-    'Angela Merkel', 'Nikola Tesla', 'Malala Yousafzai',
-  ]
-
-  const constitutionMap = {}
-  ;(items || []).forEach(c => { constitutionMap[c.character_name] = c })
+function CasesSection() {
+  const case001 = parseCase(case001Raw)
+  const case002 = parseCase(case002Raw)
 
   return (
     <div>
-      <h2 style={S.sectionTitle}>Character Constitutions</h2>
-      {KNOWN_CHARACTERS.map(name => {
-        const constitution = constitutionMap[name]
-        return (
-          <div key={name} style={S.card}>
-            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#d4cfc5' }}>{name}</div>
-            {constitution ? (
-              <div>
-                {[1,2,3,4,5,6,7].map(i => constitution[`commitment_${i}`] && (
-                  <div key={i} style={{ fontSize: '13px', color: '#a0a090', marginBottom: '4px', lineHeight: 1.5 }}>
-                    {i}. {constitution[`commitment_${i}`]}
-                  </div>
-                ))}
-                {constitution.endorsed_by && (
-                  <div style={S.cardMeta}>
-                    Endorsed by {constitution.endorsed_by}
-                    {constitution.endorsement_date ? ` · ${constitution.endorsement_date}` : ''}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div style={{ fontSize: '12px', color: '#3a3a3a', fontFamily: 'monospace', fontStyle: 'italic' }}>
-                constitution not yet written
-              </div>
-            )}
-          </div>
-        )
-      })}
-
-      {/* Show any additional constitutions not in the known list */}
-      {(items || [])
-        .filter(c => !KNOWN_CHARACTERS.includes(c.character_name))
-        .map(c => (
-          <div key={c.id} style={S.card}>
-            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#d4cfc5' }}>{c.character_name}</div>
-            {[1,2,3,4,5,6,7].map(i => c[`commitment_${i}`] && (
-              <div key={i} style={{ fontSize: '13px', color: '#a0a090', marginBottom: '4px' }}>
-                {i}. {c[`commitment_${i}`]}
-              </div>
-            ))}
-          </div>
-        ))
-      }
+      <h2 style={S.sectionTitle}>Reference Cases</h2>
+      {[case001, case002].filter(Boolean).map((c, i) => (
+        <CaseCard key={i} caseData={c} />
+      ))}
     </div>
   )
 }
 
-function ReportSection({ items, title }) {
+function CaseCard({ caseData }) {
+  const [expanded, setExpanded] = useState(false)
+  const { title, meta, sections } = caseData
+
+  const SECTION_ORDER = [
+    'Context', 'What held', 'What didn\'t hold', 'Key moment',
+    'Key moment — the middle node',
+    'Amendments produced', 'Open questions produced', 'Analyst note',
+  ]
+
+  return (
+    <div style={{ ...S.card, marginBottom: '18px' }}>
+      <div style={{ ...S.cardTitle, fontSize: '15px' }}>{title}</div>
+      <div style={{ fontSize: '11px', color: '#4a4a4a', fontFamily: 'monospace', marginBottom: '12px' }}>
+        {meta.date} · {meta.roomType} · Gardener {meta.protocol}
+      </div>
+
+      {/* Always show Context */}
+      {sections['Context'] && (
+        <div>
+          <div style={S.caseSection}>Context</div>
+          <div style={S.caseBody}>{sections['Context']}</div>
+        </div>
+      )}
+
+      {/* Expand for rest */}
+      {!expanded ? (
+        <button
+          style={{ ...S.btn(), marginTop: '12px' }}
+          onClick={() => setExpanded(true)}
+        >
+          read more
+        </button>
+      ) : (
+        <div>
+          {SECTION_ORDER.filter(s => s !== 'Context' && sections[s]).map(sectionKey => (
+            <div key={sectionKey}>
+              <div style={S.caseSection}>{sectionKey}</div>
+              <div style={S.caseBody}>{sections[sectionKey]}</div>
+            </div>
+          ))}
+          <button style={{ ...S.btn(), marginTop: '12px' }} onClick={() => setExpanded(false)}>
+            collapse
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Journals section ──────────────────────────────────────────────────────────
+
+function JournalsSection({ data }) {
+  const [activeJournal, setActiveJournal] = useState('gardener')
+
+  const journals = [
+    { id: 'gardener',      label: "Gardener's Journal",     key: 'gardener_journal' },
+    { id: 'weatherman',    label: "Weatherman's Journal",   key: 'weatherman_journal' },
+    { id: 'entomologist',  label: "Entomologist's Journal", key: 'entomologist_journal' },
+  ]
+
+  const current = journals.find(j => j.id === activeJournal)
+  const items   = current ? (data[current.key] || null) : null
+
   return (
     <div>
-      <h2 style={S.sectionTitle}>{title}</h2>
-      {(!items || items.length === 0) ? (
-        <div style={S.empty}>No entries yet.</div>
+      <h2 style={S.sectionTitle}>Journals</h2>
+
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        {journals.map(j => (
+          <button
+            key={j.id}
+            style={S.btn(activeJournal === j.id ? 'primary' : undefined)}
+            onClick={() => setActiveJournal(j.id)}
+          >
+            {j.label}
+          </button>
+        ))}
+      </div>
+
+      {items === null ? (
+        <div style={S.loading}>loading…</div>
+      ) : items.length === 0 ? (
+        <div style={S.empty}>
+          No entries yet. Journal entries are written by humans at the Library after strolls and reference cases.
+        </div>
       ) : (
         items.map(item => (
-          <div key={item.id} style={S.card}>
-            <div style={{ fontSize: '13px', color: '#c0bab0', lineHeight: 1.6 }}>
-              {typeof item.content === 'object'
-                ? <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '11px', color: '#8a8478', whiteSpace: 'pre-wrap' }}>
-                    {JSON.stringify(item.content, null, 2)}
-                  </pre>
-                : String(item.content)
-              }
-            </div>
-            <div style={S.cardMeta}>
-              {item.generated_by} · {item.room_id ? `room ${item.room_id.slice(0, 8)}` : 'no room'} · {new Date(item.created_at).toLocaleString()}
-            </div>
-          </div>
+          <ReportCard key={item.id} item={item} />
         ))
       )}
     </div>
   )
 }
 
-function NotebookSection({ items, userId, onRefresh }) {
+// ── Governance section ────────────────────────────────────────────────────────
+
+function GovernanceSection({ items }) {
+  return (
+    <div>
+      <h2 style={S.sectionTitle}>Governance Reports</h2>
+      {(!items || items.length === 0) ? (
+        <div style={S.empty}>No governance reports. The garden is well.</div>
+      ) : (
+        items.map(item => <ReportCard key={item.id} item={item} />)
+      )}
+    </div>
+  )
+}
+
+// ── Public Conversations section ──────────────────────────────────────────────
+
+function PublicConvosSection({ rooms, onOpenRoom }) {
+  if (!rooms) return <div style={S.loading}>loading…</div>
+  if (rooms.length === 0) return (
+    <div>
+      <h2 style={S.sectionTitle}>Public Conversations</h2>
+      <div style={S.empty}>No public conversations yet.</div>
+    </div>
+  )
+
+  return (
+    <div>
+      <h2 style={S.sectionTitle}>Public Conversations</h2>
+      {rooms.map(room => {
+        const chars = (room.characters || []).map(c => c.name).join(', ')
+        return (
+          <button
+            key={room.code}
+            style={{ ...S.card, cursor: 'pointer', textAlign: 'left', width: '100%', border: '1px solid #2a2a2a', display: 'block' }}
+            onClick={() => onOpenRoom && onOpenRoom(room.code)}
+          >
+            <div style={{ ...S.cardTitle, marginBottom: '4px' }}>
+              {chars || 'Unnamed room'}
+            </div>
+            <div style={{ fontSize: '12px', color: '#5a5a5a', marginBottom: '6px' }}>
+              {room.lastMessagePreview || 'No messages yet'}
+            </div>
+            <div style={{ fontSize: '11px', color: '#3a3a3a', fontFamily: 'monospace' }}>
+              {relativeTime(room.lastActivity || room.createdAt)} · {room.participantCount || 0} participants · {room.code}
+            </div>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── My Conversations section ──────────────────────────────────────────────────
+
+function MyConvosSection({ rooms, onOpenRoom, onOpenBranchConfig, onContinueStroll }) {
+  if (!rooms) return <div style={S.loading}>loading…</div>
+  if (rooms.length === 0) return (
+    <div>
+      <h2 style={S.sectionTitle}>My Conversations</h2>
+      <div style={S.empty}>No conversations yet.</div>
+    </div>
+  )
+
+  return (
+    <div>
+      <h2 style={S.sectionTitle}>My Conversations</h2>
+      {rooms.map(room => {
+        const isStroll  = room.roomMode === 'stroll' || room.mode?.id === 'stroll'
+        const isDormant = Boolean(room.dormantAt || room.dormant_at)
+        const chars     = (room.characters || []).map(c => c.name).join(', ')
+        const roomLabel = isStroll ? 'Stroll' : (chars || 'Unnamed room')
+
+        return (
+          <div
+            key={room.code}
+            style={{
+              ...S.card,
+              opacity:    isDormant ? 0.75 : 1,
+              borderLeft: isStroll ? '3px solid #4a5a24' : '1px solid #2a2a2a',
+              marginLeft: isDormant ? '8px' : '0',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ ...S.cardTitle, marginBottom: '4px' }}>
+                {roomLabel}
+                {isStroll && isDormant && (
+                  <span style={{ fontSize: '10px', color: '#5a6a30', marginLeft: '8px', fontFamily: 'monospace', fontWeight: 'normal', letterSpacing: '0.08em' }}>
+                    dormant
+                  </span>
+                )}
+              </div>
+              {!isStroll && (
+                <button
+                  style={{ ...S.btn(), fontSize: '11px', padding: '4px 10px' }}
+                  onClick={() => onOpenRoom && onOpenRoom(room.code)}
+                >
+                  open
+                </button>
+              )}
+            </div>
+
+            <div style={{ fontSize: '12px', color: '#5a5a5a', marginBottom: '4px' }}>
+              {isStroll
+                ? (isDormant ? 'dormant · branchable' : 'stroll in progress')
+                : (room.lastMessagePreview || 'No messages yet')}
+            </div>
+            <div style={{ fontSize: '11px', color: '#3a3a3a', fontFamily: 'monospace' }}>
+              {relativeTime(room.lastActivity || room.createdAt)} · {room.code}
+            </div>
+
+            {/* Dormant stroll — Branch and Continue stroll actions */}
+            {isStroll && isDormant && (
+              <div style={S.strollActionRow}>
+                <button
+                  style={S.strollBtn('continue')}
+                  onClick={() => onContinueStroll && onContinueStroll(room)}
+                  title="Continue stroll — creates a new stroll branching from this one"
+                >
+                  Continue stroll
+                </button>
+                <button
+                  style={S.strollBtn('branch')}
+                  onClick={() => onOpenBranchConfig && onOpenBranchConfig({
+                    parentRoomId:       room.id,
+                    branchedAtSequence: null,
+                    branchDepth:        (room.branchDepth || 0) + 1,
+                    foundingMessages:   [],
+                    parentCharacters:   [],
+                  })}
+                  title="Branch — opens branch config with this stroll as parent"
+                >
+                  Branch
+                </button>
+              </div>
+            )}
+
+            {/* Active stroll — open */}
+            {isStroll && !isDormant && (
+              <div style={{ marginTop: '10px' }}>
+                <button
+                  style={{ ...S.btn('primary'), fontSize: '11px' }}
+                  onClick={() => onOpenRoom && onOpenRoom(room.code)}
+                >
+                  continue stroll
+                </button>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Notebook section ──────────────────────────────────────────────────────────
+
+function NotebookSection({ items, userId, isAuthenticated, onRefresh }) {
   const [newEntry,    setNewEntry]    = useState('')
   const [editingId,   setEditingId]   = useState(null)
   const [editContent, setEditContent] = useState('')
   const [saving,      setSaving]      = useState(false)
 
+  if (!isAuthenticated) {
+    return (
+      <div>
+        <h2 style={S.sectionTitle}>My Notebook</h2>
+        <div style={S.empty}>Sign in to access your private notebook.</div>
+      </div>
+    )
+  }
+
   async function handleAdd() {
     if (!newEntry.trim() || !supabase || !userId) return
     setSaving(true)
-    const { error } = await supabase.from('notebook_entries').insert({
-      user_id: userId,
-      content: newEntry.trim(),
-    })
+    const { error } = await supabase.from('notebook_entries').insert({ user_id: userId, content: newEntry.trim() })
     if (!error) { setNewEntry(''); onRefresh() }
     setSaving(false)
   }
 
   async function handleUpdate(id) {
     if (!editContent.trim() || !supabase) return
-    await supabase.from('notebook_entries').update({
-      content:    editContent.trim(),
-      updated_at: new Date().toISOString(),
-    }).eq('id', id)
+    await supabase.from('notebook_entries').update({ content: editContent.trim(), updated_at: new Date().toISOString() }).eq('id', id)
     setEditingId(null)
     onRefresh()
   }
@@ -468,7 +827,6 @@ function NotebookSection({ items, userId, onRefresh }) {
   return (
     <div>
       <h2 style={S.sectionTitle}>My Notebook</h2>
-
       <div style={{ marginBottom: '24px' }}>
         <textarea
           value={newEntry}
@@ -476,11 +834,7 @@ function NotebookSection({ items, userId, onRefresh }) {
           placeholder="New entry…"
           style={S.notebookInput}
         />
-        <button
-          style={S.btn('primary')}
-          onClick={handleAdd}
-          disabled={saving}
-        >
+        <button style={S.btn('primary')} onClick={handleAdd} disabled={saving}>
           {saving ? 'saving…' : 'add entry'}
         </button>
       </div>
@@ -495,14 +849,14 @@ function NotebookSection({ items, userId, onRefresh }) {
                 <textarea
                   value={editContent}
                   onChange={e => setEditContent(e.target.value)}
-                  style={{ ...S.notebookInput, minHeight: '80px' }}
+                  style={{ ...S.notebookInput, minHeight: '70px' }}
                 />
                 <button style={S.btn('primary')} onClick={() => handleUpdate(item.id)}>save</button>
                 <button style={S.btn()} onClick={() => setEditingId(null)}>cancel</button>
               </>
             ) : (
               <>
-                <div style={{ fontSize: '14px', color: '#c0bab0', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                <div style={{ fontSize: '14px', color: '#b8b3aa', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
                   {item.content}
                 </div>
                 <div style={{ ...S.cardMeta, display: 'flex', gap: '12px', marginTop: '10px' }}>
@@ -510,21 +864,38 @@ function NotebookSection({ items, userId, onRefresh }) {
                   <button
                     style={{ background: 'none', border: 'none', color: '#5a5a5a', cursor: 'pointer', fontFamily: 'monospace', fontSize: '11px', padding: 0 }}
                     onClick={() => { setEditingId(item.id); setEditContent(item.content) }}
-                  >
-                    edit
-                  </button>
+                  >edit</button>
                   <button
-                    style={{ background: 'none', border: 'none', color: '#7a2a2a', cursor: 'pointer', fontFamily: 'monospace', fontSize: '11px', padding: 0 }}
+                    style={{ background: 'none', border: 'none', color: '#6a2a2a', cursor: 'pointer', fontFamily: 'monospace', fontSize: '11px', padding: 0 }}
                     onClick={() => handleDelete(item.id)}
-                  >
-                    delete
-                  </button>
+                  >delete</button>
                 </div>
               </>
             )}
           </div>
         ))
       )}
+    </div>
+  )
+}
+
+// ── Shared report card ────────────────────────────────────────────────────────
+
+function ReportCard({ item }) {
+  return (
+    <div style={S.card}>
+      <div style={{ fontSize: '13px', color: '#b0aaa0', lineHeight: 1.65 }}>
+        {typeof item.content === 'object'
+          ? <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '11px', color: '#6a6460', whiteSpace: 'pre-wrap' }}>
+              {JSON.stringify(item.content, null, 2)}
+            </pre>
+          : String(item.content)}
+      </div>
+      <div style={S.cardMeta}>
+        {item.generated_by && <span>{item.generated_by} · </span>}
+        {item.room_id && <span>room {item.room_id.slice(0, 8)} · </span>}
+        <span>{new Date(item.created_at).toLocaleString()}</span>
+      </div>
     </div>
   )
 }

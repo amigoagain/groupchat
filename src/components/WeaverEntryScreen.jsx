@@ -265,7 +265,7 @@ function initRhizome(canvas) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn, onStartRoom }) {
+export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn, onStartRoom, onTriggerStroll, onOpenLibrary }) {
   const { isAuthenticated, userId, username, authLoading } = useAuth()
 
   const [messages,       setMessages]       = useState([])
@@ -433,9 +433,8 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
     }
   }
 
-  const openMyChats   = () => { setInboxTab('my');  setShowInbox(true) }
-  const openBrowseAll = () => { setInboxTab('all'); setShowInbox(true) }
-  const closeInbox    = () => setShowInbox(false)
+  const openMyChats = () => { setInboxTab('my'); setShowInbox(true) }
+  const closeInbox  = () => setShowInbox(false)
 
   const hasReturningRooms = getVisitedRoomCodes().length > 0
 
@@ -486,6 +485,17 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
         )}
       </div>
 
+      {/* ── Stroll entry point ── */}
+      <div className="weaver-stroll-cta">
+        <button
+          className="weaver-stroll-btn"
+          onClick={() => onTriggerStroll && onTriggerStroll()}
+          title="Begin a stroll — a metered conversation with the Gardener"
+        >
+          Begin a stroll
+        </button>
+      </div>
+
       {/* ── Input bar ── */}
       <div className="weaver-input-bar" ref={inputBarRef}>
         <textarea
@@ -534,12 +544,12 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
 
         <button
           className="weaver-nav-btn"
-          onClick={openBrowseAll}
-          aria-label="Browse All"
-          title="Browse All"
+          onClick={() => onOpenLibrary && onOpenLibrary()}
+          aria-label="Library"
+          title="Library"
         >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
           </svg>
         </button>
       </div>
@@ -551,11 +561,12 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
           <div className="graph-inbox-sheet">
             <div className="graph-inbox-pull-handle" />
             <InboxScreen
-              initialTab={inboxTab}
+              initialTab="my"
               onStartRoom={closeInbox}
               onOpenRoom={(code) => { closeInbox(); onOpenRoom(code) }}
               onJoinRoom={(code) => { closeInbox(); onOpenRoom(code) }}
               onSignIn={() => { closeInbox(); onSignIn() }}
+              onOpenLibrary={() => { closeInbox(); onOpenLibrary && onOpenLibrary() }}
             />
           </div>
         </div>

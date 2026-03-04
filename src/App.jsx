@@ -10,6 +10,7 @@ import PasswordResetScreen from './components/PasswordResetScreen.jsx'
 import BranchConfig from './components/BranchConfig.jsx'
 import WeaverEntryScreen from './components/WeaverEntryScreen.jsx'
 import StrollConfig from './components/StrollConfig.jsx'
+import LibraryScreen from './components/LibraryScreen.jsx'
 // GraphScreen (force-graph) is preserved for V2 but loaded lazily to keep it off
 // the critical-path bundle (react-force-graph pulls in aframe which requires a
 // global AFRAME object that isn't present in our Vite ESM build).
@@ -23,7 +24,7 @@ import { hasUsername, setUsername, getUsername } from './utils/username.js'
 import { markRoomVisited, markAllSeen } from './utils/inboxUtils.js'
 import { useAuth } from './contexts/AuthContext.jsx'
 import { gooseHonk1 } from './services/gooseAgent.js'
-import { initStrollState, fetchOrCreateMemory } from './services/gardenerMemory.js'
+import { initStrollState, fetchOrCreateMemory, seedMemoryFromParent } from './services/gardenerMemory.js'
 import { supabase } from './lib/supabase.js'
 
 export default function App() {
@@ -45,7 +46,12 @@ export default function App() {
   const [branchConfigData, setBranchConfigData] = useState(null)
 
   // Stroll config screen
-  const [showStrollConfig, setShowStrollConfig] = useState(false)
+  const [showStrollConfig,    setShowStrollConfig]    = useState(false)
+  // Stroll branch — when "Continue stroll" is tapped from Library private section
+  const [branchFromStrollRoom, setBranchFromStrollRoom] = useState(null)
+
+  // Library screen — tracks which screen to return to on back
+  const [libraryReturnScreen, setLibraryReturnScreen] = useState('weaver')
 
   // Username gate: true means we need to collect the name first
   const [needsUsername, setNeedsUsername] = useState(!hasUsername())
@@ -201,7 +207,8 @@ export default function App() {
       return
     }
     // Include parent room characters for pre-population in BranchConfig
-    setBranchConfigData({ ...data, parentCharacters: currentRoom?.characters || [] })
+    // Data from Library includes parentCharacters directly; fall back to currentRoom
+    setBranchConfigData({ ...data, parentCharacters: data.parentCharacters ?? currentRoom?.characters ?? [] })
     setScreen('branch-config')
   }
 
@@ -272,6 +279,10 @@ export default function App() {
   const handleStrollConfirm = async (turnCount) => {
     setShowStrollConfig(false)
 
+    // If branching from a dormant stroll, capture the parent before clearing
+    const parentStrollRoom = branchFromStrollRoom
+    setBranchFromStrollRoom(null)
+
     // Create room with mode: stroll
     const strollMode = { id: 'stroll', name: 'Stroll', icon: '🌿', modeContext: '' }
     const room = await createRoom(
@@ -283,12 +294,13 @@ export default function App() {
       null,
     )
 
-    // Set room_mode and stroll_turn_count on the room record
+    // Set room_mode, stroll_turn_count, and parent link if branching
     if (room.id && supabase) {
       try {
         await supabase.from('rooms').update({
           room_mode:         'stroll',
           stroll_turn_count: turnCount,
+          ...(parentStrollRoom?.id ? { parent_room_id: parentStrollRoom.id } : {}),
         }).eq('id', room.id)
       } catch {}
     }
@@ -296,8 +308,8 @@ export default function App() {
     // Goose Honk 1 — write turn count to agent_signals
     await gooseHonk1(room.id, turnCount)
 
-    // Initialize stroll_state
-    await initStrollState(room.id, turnCount)
+    // Initialize stroll_state (with parent link if branching)
+    await initStrollState(room.id, turnCount, parentStrollRoom?.id || null)
 
     // Initialize gardener_memory with stroll_mode: true
     const freshMemory = await fetchOrCreateMemory(room.id)
@@ -310,10 +322,50 @@ export default function App() {
       } catch {}
     }
 
+    // If branching from dormant stroll, seed memory from parent's final state
+    if (parentStrollRoom?.id && room.id) {
+      seedMemoryFromParent(room.id, parentStrollRoom.id).catch(() => {})
+    }
+
     setCurrentRoom({ ...room, mode: strollMode, roomMode: 'stroll', stroll_turn_count: turnCount })
     markRoomVisited(room.code)
     navigate(`/room/${room.code}`, { replace: true })
     setScreen('chat')
+  }
+
+  /**
+   * Open the Library full-screen view from any screen.
+   * Saves current screen so back navigation can restore it.
+   */
+  const handleOpenLibrary = () => {
+    setLibraryReturnScreen(screen)
+    setScreen('library')
+  }
+
+  /**
+   * Called by Library back button — returns to whichever screen opened Library.
+   */
+  const handleBackFromLibrary = () => {
+    setScreen(libraryReturnScreen || 'weaver')
+  }
+
+  /**
+   * Called when a stroll reaches zero turns — navigate back to entry screen.
+   */
+  const handleStrollClose = () => {
+    setCurrentRoom(null)
+    navigate('/', { replace: true })
+    setScreen('weaver')
+  }
+
+  /**
+   * Called by Private Library when "Continue stroll" is tapped on a dormant stroll.
+   * Stores the parent room, closes Library, opens StrollConfig.
+   */
+  const handleContinueStroll = (dormantRoom) => {
+    setBranchFromStrollRoom(dormantRoom)
+    setScreen('weaver') // go to entry first so StrollConfig opens cleanly
+    setShowStrollConfig(true)
   }
 
   const handleBackToStart = () => {
@@ -373,6 +425,15 @@ export default function App() {
         />
       )}
 
+      {screen === 'library' && (
+        <LibraryScreen
+          onBack={handleBackFromLibrary}
+          onOpenRoom={handleOpenRoom}
+          onOpenBranchConfig={handleOpenBranchConfig}
+          onContinueStroll={handleContinueStroll}
+        />
+      )}
+
       {screen === 'weaver' && (
         <WeaverEntryScreen
           onOpenRoom={handleOpenRoom}
@@ -384,6 +445,8 @@ export default function App() {
           }}
           onSignIn={() => handleSignIn()}
           onStartRoom={handleStartRoom}
+          onTriggerStroll={handleTriggerStroll}
+          onOpenLibrary={handleOpenLibrary}
         />
       )}
 
@@ -403,6 +466,7 @@ export default function App() {
           onOpenRoom={handleOpenRoom}
           onJoinRoom={handleJoinRoom}
           onSignIn={() => handleSignIn()}
+          onOpenLibrary={handleOpenLibrary}
           joinError={joinError}
           onClearJoinError={() => setJoinError('')}
         />
@@ -451,6 +515,8 @@ export default function App() {
           onBack={handleBackToStart}
           onOpenBranchConfig={handleOpenBranchConfig}
           onTriggerStroll={handleTriggerStroll}
+          onStrollClose={handleStrollClose}
+          onOpenLibrary={handleOpenLibrary}
         />
       )}
     </div>

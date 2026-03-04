@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { fetchMyRooms, fetchAllRooms } from '../utils/roomUtils.js'
+import { fetchMyRooms } from '../utils/roomUtils.js'
 import {
   generateRoomName,
   relativeTime,
@@ -154,18 +154,17 @@ export default function InboxScreen({
   onJoinRoom,
   onSignIn,
   onCreateCharacter,
+  onOpenLibrary,
   joinError,
   onClearJoinError,
 }) {
   const { isAuthenticated, userId, username, authLoading } = useAuth()
 
-  const [activeTab,  setActiveTab]  = useState(initialTab ?? 'my')
-  const [myRooms,    setMyRooms]    = useState([])
-  const [allRooms,   setAllRooms]   = useState([])
-  const [loading,    setLoading]    = useState(true)
-  const [joinCode,   setJoinCode]   = useState('')
-  const [showMenu,   setShowMenu]   = useState(false)
-  const [showAbout,  setShowAbout]  = useState(false)
+  const [myRooms,   setMyRooms]   = useState([])
+  const [loading,   setLoading]   = useState(true)
+  const [joinCode,  setJoinCode]  = useState('')
+  const [showMenu,  setShowMenu]  = useState(false)
+  const [showAbout, setShowAbout] = useState(false)
   const menuRef = useRef(null)
 
   // Close menu on outside click
@@ -186,12 +185,8 @@ export default function InboxScreen({
     setLoading(true)
     try {
       const visitedCodes = isAuthenticated ? [] : getVisitedRoomCodes()
-      const [my, all] = await Promise.all([
-        fetchMyRooms(visitedCodes, isAuthenticated ? userId : null),
-        fetchAllRooms(),
-      ])
+      const my = await fetchMyRooms(visitedCodes, isAuthenticated ? userId : null)
       setMyRooms(my)
-      setAllRooms(all)
     } catch (err) {
       console.warn('[Kepos] Inbox load error:', err)
     } finally {
@@ -214,7 +209,7 @@ export default function InboxScreen({
     if (code.length >= 4) onJoinRoom(code)
   }
 
-  const rooms = activeTab === 'my' ? myRooms : allRooms
+  const rooms = myRooms
 
   return (
     <div className="inbox-screen">
@@ -225,6 +220,18 @@ export default function InboxScreen({
           <h1 className="inbox-title">Kepos</h1>
         </div>
         <div className="inbox-header-right" ref={menuRef}>
+          {/* Library icon */}
+          <button
+            className="inbox-library-btn"
+            onClick={() => onOpenLibrary && onOpenLibrary()}
+            aria-label="Library"
+            title="Library"
+            type="button"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+            </svg>
+          </button>
           <button
             className="inbox-hamburger-btn"
             onClick={() => setShowMenu(v => !v)}
@@ -262,10 +269,10 @@ export default function InboxScreen({
                 <span className="inbox-menu-label">Create Character</span>
               </div>
 
-              {/* Browse Public Rooms */}
-              <div className="inbox-menu-item" onClick={() => { setShowMenu(false); setActiveTab('all') }}>
-                <span className="inbox-menu-icon">🌐</span>
-                <span className="inbox-menu-label">Browse Public Rooms</span>
+              {/* Library */}
+              <div className="inbox-menu-item" onClick={() => { setShowMenu(false); onOpenLibrary && onOpenLibrary() }}>
+                <span className="inbox-menu-icon">📖</span>
+                <span className="inbox-menu-label">Library</span>
               </div>
 
               <div className="inbox-menu-divider" />
@@ -301,22 +308,12 @@ export default function InboxScreen({
         </div>
       )}
 
-      {/* ── Tabs ── */}
+      {/* ── Tab header ── */}
       <div className="inbox-tabs">
-        <button
-          className={`inbox-tab${activeTab === 'my' ? ' active' : ''}`}
-          onClick={() => setActiveTab('my')}
-        >
+        <div className="inbox-tab active">
           My Chats
           {myRooms.length > 0 && <span className="inbox-tab-count">{myRooms.length}</span>}
-        </button>
-        <button
-          className={`inbox-tab${activeTab === 'all' ? ' active' : ''}`}
-          onClick={() => setActiveTab('all')}
-        >
-          Browse All
-          {allRooms.length > 0 && <span className="inbox-tab-count">{allRooms.length}</span>}
-        </button>
+        </div>
       </div>
 
       {/* ── Room list ── */}
@@ -328,28 +325,15 @@ export default function InboxScreen({
           </div>
         ) : rooms.length === 0 ? (
           <div className="inbox-empty">
-            {activeTab === 'my' ? (
-              <>
-                <div className="inbox-empty-icon">💬</div>
-                <div className="inbox-empty-title">No chats yet</div>
-                <div className="inbox-empty-sub">
-                  Tap <strong>+</strong> to start your first room, or enter a room code below
-                </div>
-                {!isAuthenticated && (
-                  <button className="inbox-auth-nudge" onClick={onSignIn} type="button">
-                    Sign in to keep your rooms across devices →
-                  </button>
-                )}
-              </>
-            ) : (
-              <>
-                <div className="inbox-empty-icon">🌐</div>
-                <div className="inbox-empty-title">No public rooms yet</div>
-                <div className="inbox-empty-sub">
-                  Public rooms are set to <strong>read-only</strong> and seeded by admins.
-                  Browse, read, and branch any conversation you find interesting.
-                </div>
-              </>
+            <div className="inbox-empty-icon">💬</div>
+            <div className="inbox-empty-title">No chats yet</div>
+            <div className="inbox-empty-sub">
+              Tap <strong>+</strong> to start your first room, or enter a room code below
+            </div>
+            {!isAuthenticated && (
+              <button className="inbox-auth-nudge" onClick={onSignIn} type="button">
+                Sign in to keep your rooms across devices →
+              </button>
             )}
           </div>
         ) : (
@@ -359,7 +343,7 @@ export default function InboxScreen({
               room={room}
               onOpen={onOpenRoom}
               onRemove={handleRemove}
-              showRemove={activeTab === 'my'}
+              showRemove={true}
             />
           ))
         )}

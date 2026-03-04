@@ -19,18 +19,20 @@ import { saveRoom, ensureParticipant, getMyRole, listParticipants, setParticipan
 import { getUsername, setUsername } from '../utils/username.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useDevMode } from '../contexts/DevModeContext.jsx'
-import LibraryScreen from './LibraryScreen.jsx'
+// LibraryScreen is now a full-screen view navigated to via onOpenLibrary prop
 
 const POLL_INTERVAL_MS = 3000
 
-export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranchConfig, onTriggerStroll }) {
+export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranchConfig, onTriggerStroll, onStrollClose, onOpenLibrary }) {
   const { isAuthenticated, username: authUsername, userId } = useAuth()
   const {
     routerEnabled, memoryEnabled, gardenerEnabled,
     gooseEnabled, weatherEnabled, bugsEnabled, huxEnabled,
   } = useDevMode()
 
-  const [showLibrary, setShowLibrary] = useState(false)
+  // Stroll close visual sequence
+  const [strollClosing, setStrollClosing] = useState(false)
+  const [strollFading,  setStrollFading]  = useState(false)
 
   // Stroll state — loaded once on mount for stroll rooms
   const [strollState, setStrollState] = useState(null)
@@ -182,7 +184,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     // ── Command parsing ───────────────────────────────────────────────────────
     if (text === '/library') {
       setInput('')
-      setShowLibrary(true)
+      if (onOpenLibrary) onOpenLibrary()
       return
     }
     if (text === '/stroll') {
@@ -335,11 +337,24 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
           setStrollState(newStrollState)
           console.log('[Stroll] turn:', newStrollState?.turns_elapsed, '/', newStrollState?.turn_count_total, '| season:', newStrollState?.current_season, '| remaining:', newStrollState?.turns_remaining)
 
-          // Check if stroll is in dormancy (Gardener asked the binary question)
-          const isDormancyQuestion = responseText.toLowerCase().includes('shall we continue')
-          if (newStrollState?.turns_remaining <= 0 || newStrollState?.current_season === 'dormant') {
-            // Auto-trigger dormancy
+          // Hard stop: when turns_remaining reaches zero, enforce closure immediately.
+          // The Gardener may have already signalled the close; if not, the system closes for her.
+          if ((newStrollState?.turns_remaining ?? 1) <= 0 || newStrollState?.current_season === 'dormant') {
             setStrollDormant(room.id).catch(() => {})
+            // Trigger visual close sequence: dormant divider → fade → navigate to entry
+            setStrollClosing(true)
+            setTypingCharacter(null)
+            setIsSending(false)
+            setRoutingNotice(null)
+            cancelledRef.current = false
+            sendLockRef.current = false
+            setTimeout(() => {
+              setStrollFading(true)
+              setTimeout(() => {
+                if (onStrollClose) onStrollClose()
+              }, 1500)
+            }, 2000)
+            return // do not continue processing
           }
         }
       } catch (err) {
@@ -681,12 +696,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   const modeLabel = room.mode?.name || 'Chat'
 
   return (
-    <div className={`chat-screen${selectionMode ? ' selection-mode' : ''}`}>
-
-      {/* Library overlay */}
-      {showLibrary && (
-        <LibraryScreen onClose={() => setShowLibrary(false)} />
-      )}
+    <div className={`chat-screen${selectionMode ? ' selection-mode' : ''}${strollFading ? ' stroll-fade-out' : ''}`}>
 
       {/* ── Floating header overlay ── */}
       <div className="chat-float-header">
@@ -716,6 +726,18 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
               <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+          </button>
+
+          {/* Library */}
+          <button
+            className="chat-float-btn"
+            onClick={() => onOpenLibrary && onOpenLibrary()}
+            title="Library"
+            aria-label="Library"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
             </svg>
           </button>
 
@@ -829,6 +851,14 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
             )
           })
         })()}
+
+        {/* Stroll dormant close — visual break rendered when stroll reaches turn limit */}
+        {strollClosing && (
+          <div className="stroll-dormant-close">
+            <hr className="stroll-dormant-hr" />
+            <div className="stroll-dormant-label">dormant</div>
+          </div>
+        )}
 
         {isSending && (
           <div className="chat-generation-status">

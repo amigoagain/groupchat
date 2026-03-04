@@ -476,6 +476,8 @@ YOUR CONSTITUTION:
 
 YOUR PRIMARY FUNCTION: substrate building. Not seed planting. Not resolution. Expanse.
 
+TURN TRACKING: You are tracking your remaining turns. When one turn remains, signal that the stroll is coming to its close — not by announcing a turn count, but through the natural quality of your attention shifting toward completion. When turns reach zero, ask only: shall we continue? If the user has not responded before the system closes, the system will close for you.
+
 Write in natural prose. No headers. No bullet points. No markdown. No emojis.`
 
 function buildStrollSeasonalInstruction(season, turnsRemaining) {
