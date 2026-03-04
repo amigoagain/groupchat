@@ -1,16 +1,16 @@
 /**
  * WeaverEntryScreen.jsx  — Kepos primary entry screen
  * ─────────────────────────────────────────────────────────────
- * Three elements:
- *   1. Canvas 2D rhizome visualization (full-screen background)
- *   2. Single input bar ("what are you curious about?")
- *   3. Hamburger menu (top-right) → full-height left drawer
+ * Three-layer flex column filling 100dvh:
+ *   1. Header (52px): wordmark centred, hamburger absolute right
+ *   2. Canvas (flex 1): rhizome animation fills remaining space
+ *   3. Input bar (auto): frosted-glass pill at bottom
  *
- * Hamburger drawer:
- *   My Strolls · My Conversations · Library · Characters · Settings · Account
+ * Keyboard handling: CSS only. The flex column responds to
+ * viewport height changes (iOS viewport-fit=cover). No JS
+ * keyboard listeners needed.
  *
- * On submit: calls onEntrySubmit(text) — App.jsx creates stroll room
- * and navigates into it. No room creation logic here.
+ * Drawer: position fixed, overlays all three layers.
  * ─────────────────────────────────────────────────────────────
  */
 
@@ -91,8 +91,10 @@ function buildRhizome(w, h) {
 
 function initRhizome(canvas) {
   const ctx = canvas.getContext('2d')
-  let w = canvas.width  = document.documentElement.clientWidth
-  let h = canvas.height = window.innerHeight
+  // Use the canvas element's own dimensions — it sits inside a flex child
+  // whose size is determined by the layout, not the window.
+  let w = canvas.width  = canvas.offsetWidth
+  let h = canvas.height = canvas.offsetHeight
 
   let data = buildRhizome(w, h)
   let tips = []
@@ -213,9 +215,12 @@ function initRhizome(canvas) {
 
   raf = requestAnimationFrame(tick)
 
+  // Resize reads canvas element dimensions — the flex layout determines the
+  // canvas wrapper size, which the canvas fills via width/height:100% CSS.
+  // Equality guard prevents unnecessary rebuilds on non-size events.
   function resize() {
-    const newW = document.documentElement.clientWidth
-    const newH = window.innerHeight
+    const newW = canvas.offsetWidth
+    const newH = canvas.offsetHeight
     if (newW === w && newH === h) return
     w = canvas.width  = newW
     h = canvas.height = newH
@@ -248,16 +253,14 @@ export default function WeaverEntryScreen({
   const [inputText,    setInputText]    = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [drawerOpen,   setDrawerOpen]   = useState(false)
-  const [vpLog,        setVpLog]        = useState([])
 
-  const canvasRef = useRef(null)
-  const inputRef  = useRef(null)
+  const canvasRef        = useRef(null)
+  const inputRef         = useRef(null)
+  const canvasWrapperRef = useRef(null)
 
   // Lock html/body scroll while entry screen is mounted.
-  // Prevents iOS Safari rubber-band scrolling revealing content behind the
-  // fixed container — reverts on unmount so other screens are unaffected.
-  // position:fixed is intentionally omitted — it causes a layout shift on iOS
-  // when the keyboard opens. overflow:hidden alone stops rubber-band scroll.
+  // overflow:hidden stops rubber-band scroll. position:fixed is omitted —
+  // it causes layout shift on iOS when the keyboard opens.
   useEffect(() => {
     const html = document.documentElement
     const body = document.body
@@ -271,7 +274,7 @@ export default function WeaverEntryScreen({
     }
   }, [])
 
-  // Canvas rhizome
+  // Canvas rhizome — init after layout so canvas.offsetWidth/Height are valid
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -279,50 +282,20 @@ export default function WeaverEntryScreen({
     return cleanup
   }, [])
 
-  // Block touchmove scroll on the container but allow it on the textarea.
-  // touchmove preventDefault() stops iOS rubber-band and canvas scroll without
-  // creating a touchAction parent/child conflict.
+  // Block touchmove on canvas wrapper only.
+  // The textarea lives in the input bar layer outside this wrapper —
+  // no exemption logic needed.
   useEffect(() => {
-    const container = document.querySelector('.kepos-entry-root')
-    if (!container) return
-    const preventScroll = (e) => {
-      if (e.target === inputRef.current) return
-      e.preventDefault()
-    }
-    container.addEventListener('touchmove', preventScroll, { passive: false })
+    const wrapper = canvasWrapperRef.current
+    if (!wrapper) return
+    const preventScroll = (e) => { e.preventDefault() }
+    wrapper.addEventListener('touchmove', preventScroll, { passive: false })
     return () => {
-      container.removeEventListener('touchmove', preventScroll)
+      wrapper.removeEventListener('touchmove', preventScroll)
     }
   }, [])
 
-  // ── Diagnostic viewport overlay (temporary) ─────────────────────────────────
-  useEffect(() => {
-    const log = () => {
-      const vv = window.visualViewport
-      const entry = [
-        'iW:' + window.innerWidth,
-        'iH:' + window.innerHeight,
-        'cW:' + document.documentElement.clientWidth,
-        'vW:' + Math.round(vv?.width ?? 0),
-        'vH:' + Math.round(vv?.height ?? 0),
-        'vX:' + Math.round(vv?.offsetLeft ?? 0),
-        'vY:' + Math.round(vv?.offsetTop ?? 0),
-        'sc:' + (vv?.scale ?? 1).toFixed(2),
-      ].join(' ')
-      setVpLog(prev => [entry, ...prev].slice(0, 8))
-    }
-    log()
-    window.visualViewport?.addEventListener('resize', log)
-    window.visualViewport?.addEventListener('scroll', log)
-    window.addEventListener('resize', log)
-    return () => {
-      window.visualViewport?.removeEventListener('resize', log)
-      window.visualViewport?.removeEventListener('scroll', log)
-      window.removeEventListener('resize', log)
-    }
-  }, [])
-
-  // Close drawer on outside click
+  // Close drawer on outside click / tap
   useEffect(() => {
     if (!drawerOpen) return
     const handler = (e) => {
@@ -395,197 +368,118 @@ export default function WeaverEntryScreen({
   ]
 
   return (
-    <div
-      className="kepos-entry-root"
-      style={{
-        position:          'fixed',
-        top:               0,
-        left:              0,
-        right:             0,
-        bottom:            0,
-        width:             '100%',
-        maxWidth:          '100vw',
-        height:            '100dvh',
-        background:        '#f5f2ec',
-        overflow:          'hidden',
-        overflowX:         'hidden',
-        overscrollBehavior: 'none',
-      }}>
+    <div style={{
+      display:           'flex',
+      flexDirection:     'column',
+      height:            '100dvh',
+      position:          'fixed',
+      top:               0,
+      left:              0,
+      right:             0,
+      bottom:            0,
+      overflow:          'hidden',
+      background:        '#f5f2ec',
+      overscrollBehavior: 'none',
+    }}>
 
-      {/* Canvas layer */}
-      <canvas
-        ref={canvasRef}
-        style={{ position: 'absolute', inset: 0, display: 'block' }}
-      />
-
-      {/* Wordmark */}
+      {/* ── Header ── */}
       <div style={{
-        position:      'absolute',
-        top:           '28px',
-        left:          '50%',
-        transform:     'translateX(-50%)',
-        fontFamily:    'Georgia, serif',
-        fontSize:      '13px',
-        letterSpacing: '0.18em',
-        textTransform: 'uppercase',
-        color:         '#4a5830',
-        opacity:       0.7,
-        userSelect:    'none',
-        pointerEvents: 'none',
+        height:         '52px',
+        flexShrink:     0,
+        position:       'relative',
+        display:        'flex',
+        alignItems:     'center',
+        justifyContent: 'center',
+        paddingTop:     'env(safe-area-inset-top, 0px)',
       }}>
-        kepos
+        {/* Wordmark */}
+        <span style={{
+          fontFamily:    'Georgia, serif',
+          fontSize:      '13px',
+          letterSpacing: '0.18em',
+          textTransform: 'uppercase',
+          color:         '#4a5830',
+          opacity:       0.7,
+          userSelect:    'none',
+          pointerEvents: 'none',
+        }}>
+          kepos
+        </span>
+
+        {/* Hamburger — absolute within header */}
+        <button
+          className="kepos-hamburger"
+          onClick={() => setDrawerOpen(o => !o)}
+          aria-label="Menu"
+          style={{
+            position:      'absolute',
+            right:         '16px',
+            top:           '50%',
+            transform:     'translateY(-50%)',
+            background:    'transparent',
+            border:        'none',
+            cursor:        'pointer',
+            padding:       '8px',
+            display:       'flex',
+            flexDirection: 'column',
+            gap:           '5px',
+            opacity:       drawerOpen ? 0 : 0.6,
+            transition:    'opacity 0.2s',
+          }}
+        >
+          <span style={{ display: 'block', width: '22px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
+          <span style={{ display: 'block', width: '22px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
+          <span style={{ display: 'block', width: '14px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
+        </button>
       </div>
 
-      {/* Hamburger button */}
-      <button
-        className="kepos-hamburger"
-        onClick={() => setDrawerOpen(o => !o)}
-        aria-label="Menu"
+      {/* ── Canvas layer ── */}
+      <div
+        ref={canvasWrapperRef}
+        onTouchStart={(e) => e.stopPropagation()}
         style={{
-          position:    'fixed',
-          top:         '20px',
-          right:       '20px',
-          zIndex:      200,
-          background:  'transparent',
-          border:      'none',
-          cursor:      'pointer',
-          padding:     '8px',
-          display:     'flex',
-          flexDirection: 'column',
-          gap:         '5px',
-          opacity:     drawerOpen ? 0 : 0.6,
-          transition:  'opacity 0.2s',
+          flex:      1,
+          position:  'relative',
+          overflow:  'hidden',
+          minHeight: 0,
         }}
       >
-        <span style={{ display: 'block', width: '22px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
-        <span style={{ display: 'block', width: '22px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
-        <span style={{ display: 'block', width: '14px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
-      </button>
-
-      {/* Left drawer overlay */}
-      {drawerOpen && (
-        <div
+        <canvas
+          ref={canvasRef}
           style={{
-            position:   'fixed',
-            inset:      0,
-            background: 'rgba(0,0,0,0.18)',
-            zIndex:     300,
+            position: 'absolute',
+            inset:    0,
+            display:  'block',
+            width:    '100%',
+            height:   '100%',
           }}
         />
-      )}
-
-      {/* Left drawer panel */}
-      <div
-        className="kepos-drawer"
-        style={{
-          position:   'fixed',
-          top:        0,
-          left:       0,
-          bottom:     0,
-          width:      '260px',
-          background: '#1a1a18',
-          zIndex:     400,
-          transform:  drawerOpen ? 'translateX(0)' : 'translateX(-100%)',
-          transition: 'transform 0.28s cubic-bezier(0.22, 1, 0.36, 1)',
-          display:    'flex',
-          flexDirection: 'column',
-          paddingTop: 'max(28px, env(safe-area-inset-top))',
-          paddingBottom: 'max(28px, env(safe-area-inset-bottom))',
-        }}
-      >
-        {/* Drawer close / wordmark */}
-        <div style={{
-          display:        'flex',
-          alignItems:     'center',
-          justifyContent: 'space-between',
-          padding:        '0 20px 32px',
-        }}>
-          <span style={{
-            fontFamily:    'Georgia, serif',
-            fontSize:      '12px',
-            letterSpacing: '0.18em',
-            textTransform: 'uppercase',
-            color:         '#6b7c47',
-            opacity:       0.8,
-          }}>kepos</span>
-          <button
-            onClick={() => setDrawerOpen(false)}
-            style={{
-              background:  'none',
-              border:      'none',
-              cursor:      'pointer',
-              color:       '#5a5a5a',
-              fontSize:    '18px',
-              lineHeight:  1,
-              padding:     '4px',
-            }}
-          >✕</button>
-        </div>
-
-        {/* Drawer items */}
-        <nav style={{ flex: 1, overflow: 'auto' }}>
-          {drawerItems.map((item) => (
-            <button
-              key={item.label}
-              onClick={item.action}
-              style={{
-                display:     'flex',
-                alignItems:  'center',
-                gap:         '14px',
-                width:       '100%',
-                padding:     '14px 24px',
-                background:  'none',
-                border:      'none',
-                cursor:      'pointer',
-                textAlign:   'left',
-                color:       '#b8b0a0',
-                fontFamily:  'Georgia, serif',
-                fontSize:    '15px',
-                transition:  'color 0.15s, background 0.15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.color = '#e8e4dc'; e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
-              onMouseLeave={e => { e.currentTarget.style.color = '#b8b0a0'; e.currentTarget.style.background = 'none' }}
-            >
-              <span style={{ fontSize: '14px', opacity: 0.7, minWidth: '20px' }}>{item.icon}</span>
-              {item.label}
-            </button>
-          ))}
-        </nav>
       </div>
 
-      {/* Input bar — fixed at bottom using env(safe-area-inset-bottom).
-           interactive-widget=resizes-content in the viewport meta causes iOS
-           to shrink the layout viewport when the keyboard opens, so the bar
-           rises naturally with no JavaScript required. */}
-      <div
-        style={{
-          position:      'fixed',
-          bottom:        'env(safe-area-inset-bottom, 0px)',
-          left:          '0',
-          right:         '0',
-          zIndex:        100,
-          paddingBottom: '12px',
-          paddingTop:    '0',
-        }}
-      >
+      {/* ── Input bar layer ── */}
+      <div style={{
+        flexShrink:    0,
+        paddingBottom: 'max(12px, env(safe-area-inset-bottom))',
+        paddingTop:    '8px',
+      }}>
         {/* Inner wrapper: max-width + horizontal padding, centred via margin */}
         <div style={{
-          maxWidth:   '520px',
-          margin:     '0 auto',
-          padding:    '0 20px 0',
+          maxWidth: '520px',
+          margin:   '0 auto',
+          padding:  '0 20px',
         }}>
           {/* Frosted-glass pill */}
           <div style={{
-            display:      'flex',
-            alignItems:   'flex-end',
-            gap:          '10px',
-            background:   'rgba(245, 241, 234, 0.82)',
+            display:              'flex',
+            alignItems:           'flex-end',
+            gap:                  '10px',
+            background:           'rgba(245, 241, 234, 0.82)',
             WebkitBackdropFilter: 'blur(12px)',
             backdropFilter:       'blur(12px)',
-            border:       '1px solid rgba(107, 124, 71, 0.18)',
-            borderRadius: '14px',
-            padding:      '10px 12px',
-            boxShadow:    '0 2px 16px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)',
+            border:               '1px solid rgba(107, 124, 71, 0.18)',
+            borderRadius:         '14px',
+            padding:              '10px 12px',
+            boxShadow:            '0 2px 16px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)',
           }}>
             <textarea
               ref={inputRef}
@@ -597,22 +491,21 @@ export default function WeaverEntryScreen({
               disabled={isSubmitting}
               rows={1}
               style={{
-                flex:        1,
-                background:  'transparent',
-                border:      'none',
-                outline:     'none',
-                resize:      'none',
-                // Warm stone — legible on light frosted background
+                flex:       1,
+                background: 'transparent',
+                border:     'none',
+                outline:    'none',
+                resize:     'none',
                 // 16px: iOS Safari auto-zoom threshold — below this it zooms on focus
-                color:       '#2e3420',
-                fontFamily:  'Georgia, serif',
-                fontSize:    '16px',
-                lineHeight:  '1.5',
-                padding:     '2px 0',
-                minHeight:   '24px',
-                maxHeight:   '120px',
-                overflow:    'auto',
-                caretColor:  '#4a5a24',
+                color:      '#2e3420',
+                fontFamily: 'Georgia, serif',
+                fontSize:   '16px',
+                lineHeight: '1.5',
+                padding:    '2px 0',
+                minHeight:  '24px',
+                maxHeight:  '120px',
+                overflow:   'auto',
+                caretColor: '#4a5a24',
               }}
             />
             <button
@@ -641,30 +534,97 @@ export default function WeaverEntryScreen({
         </div>
       </div>
 
-      {/* ── Diagnostic viewport overlay (temporary) ── */}
-      {vpLog.length > 0 && (
-        <div style={{
-          position:      'fixed',
-          top:           '60px',
-          left:          '10px',
-          right:         '10px',
-          zIndex:        999,
-          background:    'rgba(0,0,0,0.75)',
-          color:         '#00ff00',
-          fontFamily:    'monospace',
-          fontSize:      '10px',
-          padding:       '8px',
-          borderRadius:  '6px',
-          pointerEvents: 'none',
-          lineHeight:    '1.6',
-        }}>
-          {vpLog.map((line, i) => (
-            <div key={i} style={{ opacity: i === 0 ? 1 : 0.5 - i * 0.05 }}>
-              {line}
-            </div>
-          ))}
-        </div>
+      {/* ── Drawer overlay (position fixed — covers all layers) ── */}
+      {drawerOpen && (
+        <div
+          style={{
+            position:   'fixed',
+            inset:      0,
+            background: 'rgba(0,0,0,0.18)',
+            zIndex:     300,
+          }}
+        />
       )}
+
+      {/* ── Drawer panel (position fixed — slides in from left) ── */}
+      <div
+        className="kepos-drawer"
+        style={{
+          position:      'fixed',
+          top:           0,
+          left:          0,
+          bottom:        0,
+          width:         '260px',
+          background:    '#1a1a18',
+          zIndex:        400,
+          transform:     drawerOpen ? 'translateX(0)' : 'translateX(-100%)',
+          transition:    'transform 0.28s cubic-bezier(0.22, 1, 0.36, 1)',
+          display:       'flex',
+          flexDirection: 'column',
+          paddingTop:    'max(28px, env(safe-area-inset-top))',
+          paddingBottom: 'max(28px, env(safe-area-inset-bottom))',
+        }}
+      >
+        {/* Drawer header */}
+        <div style={{
+          display:        'flex',
+          alignItems:     'center',
+          justifyContent: 'space-between',
+          padding:        '0 20px 32px',
+        }}>
+          <span style={{
+            fontFamily:    'Georgia, serif',
+            fontSize:      '12px',
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            color:         '#6b7c47',
+            opacity:       0.8,
+          }}>kepos</span>
+          <button
+            onClick={() => setDrawerOpen(false)}
+            style={{
+              background: 'none',
+              border:     'none',
+              cursor:     'pointer',
+              color:      '#5a5a5a',
+              fontSize:   '18px',
+              lineHeight: 1,
+              padding:    '4px',
+            }}
+          >✕</button>
+        </div>
+
+        {/* Drawer items */}
+        <nav style={{ flex: 1, overflow: 'auto' }}>
+          {drawerItems.map((item) => (
+            <button
+              key={item.label}
+              onClick={item.action}
+              style={{
+                display:    'flex',
+                alignItems: 'center',
+                gap:        '14px',
+                width:      '100%',
+                padding:    '14px 24px',
+                background: 'none',
+                border:     'none',
+                cursor:     'pointer',
+                textAlign:  'left',
+                color:      '#b8b0a0',
+                fontFamily: 'Georgia, serif',
+                fontSize:   '15px',
+                transition: 'color 0.15s, background 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = '#e8e4dc'; e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = '#b8b0a0'; e.currentTarget.style.background = 'none' }}
+            >
+              <span style={{ fontSize: '14px', opacity: 0.7, minWidth: '20px' }}>{item.icon}</span>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
     </div>
   )
 }
