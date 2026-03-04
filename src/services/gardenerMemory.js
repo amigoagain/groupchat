@@ -588,12 +588,13 @@ export async function initStrollState(roomId, turnCountTotal, branchSourceRoomId
   if (!supabase || !roomId) return null
   try {
     const { data, error } = await supabase.from('stroll_state').insert({
-      room_id:              roomId,
-      turn_count_total:     turnCountTotal,
-      turns_elapsed:        0,
-      turns_remaining:      turnCountTotal,
-      current_season:       'winter_1',
-      season_cycle:         1,
+      room_id:               roomId,
+      turn_count_total:      turnCountTotal,
+      turn_count_chosen:     turnCountTotal, // permanent record of user's original intent; never updated
+      turns_elapsed:         0,
+      turns_remaining:       turnCountTotal,
+      current_season:        'winter_1',
+      season_cycle:          1,
       branch_source_room_id: branchSourceRoomId,
     }).select().single()
 

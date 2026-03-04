@@ -374,7 +374,23 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
         setData(d => ({ ...d, public_convos: rooms || [] }))
       } else if (section === 'my_convos' && userId) {
         const rooms = await fetchMyRooms([], userId)
-        setData(d => ({ ...d, my_convos: rooms || [] }))
+
+        // For dormant stroll rooms, fetch stroll_state to get turns ratio signal
+        const dormantStrollIds = (rooms || [])
+          .filter(r => (r.roomMode === 'stroll' || r.mode?.id === 'stroll') && Boolean(r.dormantAt || r.dormant_at))
+          .map(r => r.id)
+        let strollStateMap = {}
+        if (dormantStrollIds.length > 0 && supabase) {
+          const { data: strollStates } = await supabase
+            .from('stroll_state')
+            .select('room_id, turns_elapsed, turn_count_chosen, turn_count_total')
+            .in('room_id', dormantStrollIds)
+          if (strollStates) {
+            strollStateMap = Object.fromEntries(strollStates.map(s => [s.room_id, s]))
+          }
+        }
+
+        setData(d => ({ ...d, my_convos: rooms || [], strollStateMap }))
       } else if (section === 'notebook' && userId) {
         const { data: rows } = await supabase.from('notebook_entries').select('*').eq('user_id', userId).order('created_at', { ascending: false })
         setData(d => ({ ...d, notebook: rows || [] }))
@@ -437,6 +453,7 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
           {!loading && activeSection === 'my_convos' && (
             <MyConvosSection
               rooms={data.my_convos}
+              strollStateMap={data.strollStateMap || {}}
               onOpenRoom={onOpenRoom}
               onOpenBranchConfig={onOpenBranchConfig}
               onContinueStroll={onContinueStroll}
@@ -686,7 +703,7 @@ function PublicConvosSection({ rooms, onOpenRoom }) {
 
 // ── My Conversations section ──────────────────────────────────────────────────
 
-function MyConvosSection({ rooms, onOpenRoom, onOpenBranchConfig, onContinueStroll }) {
+function MyConvosSection({ rooms, strollStateMap = {}, onOpenRoom, onOpenBranchConfig, onContinueStroll }) {
   if (!rooms) return <div style={S.loading}>loading…</div>
   if (rooms.length === 0) return (
     <div>
@@ -703,6 +720,7 @@ function MyConvosSection({ rooms, onOpenRoom, onOpenBranchConfig, onContinueStro
         const isDormant = Boolean(room.dormantAt || room.dormant_at)
         const chars     = (room.characters || []).map(c => c.name).join(', ')
         const roomLabel = isStroll ? 'Stroll' : (chars || 'Unnamed room')
+        const ss        = isStroll && isDormant ? (strollStateMap[room.id] || null) : null
 
         return (
           <div
@@ -738,6 +756,13 @@ function MyConvosSection({ rooms, onOpenRoom, onOpenBranchConfig, onContinueStro
                 ? (isDormant ? 'dormant · branchable' : 'stroll in progress')
                 : (room.lastMessagePreview || 'No messages yet')}
             </div>
+
+            {/* Turns ratio — only for dormant strolls with stroll_state data */}
+            {ss && (
+              <div style={{ fontSize: '11px', color: '#6a7a6a', fontFamily: 'monospace', marginBottom: '4px' }}>
+                {ss.turns_elapsed ?? '—'} of {ss.turn_count_chosen ?? ss.turn_count_total ?? '—'} turns
+              </div>
+            )}
             <div style={{ fontSize: '11px', color: '#3a3a3a', fontFamily: 'monospace' }}>
               {relativeTime(room.lastActivity || room.createdAt)} · {room.code}
             </div>
