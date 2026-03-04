@@ -252,28 +252,23 @@ export default function WeaverEntryScreen({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [drawerOpen,   setDrawerOpen]   = useState(false)
 
-  const canvasRef  = useRef(null)
-  const inputRef   = useRef(null)
-  const inputBarRef = useRef(null)
+  const canvasRef = useRef(null)
+  const inputRef  = useRef(null)
 
   // Lock html/body scroll while entry screen is mounted.
   // Prevents iOS Safari rubber-band scrolling revealing content behind the
   // fixed container — reverts on unmount so other screens are unaffected.
+  // position:fixed is intentionally omitted — it causes a layout shift on iOS
+  // when the keyboard opens. overflow:hidden alone stops rubber-band scroll.
   useEffect(() => {
     const html = document.documentElement
     const body = document.body
     const prevHtmlOverflow = html.style.overflow
     const prevBodyOverflow = body.style.overflow
-    const prevHtmlPos      = html.style.position
-    const prevHtmlHeight   = html.style.height
     html.style.overflow = 'hidden'
-    html.style.position = 'fixed'
-    html.style.height   = '100%'
     body.style.overflow = 'hidden'
     return () => {
       html.style.overflow = prevHtmlOverflow
-      html.style.position = prevHtmlPos
-      html.style.height   = prevHtmlHeight
       body.style.overflow = prevBodyOverflow
     }
   }, [])
@@ -284,35 +279,6 @@ export default function WeaverEntryScreen({
     if (!canvas) return
     const cleanup = initRhizome(canvas)
     return cleanup
-  }, [])
-
-  // visualViewport: keep input bar above keyboard on iOS.
-  // Uses transform: translateY() — more reliable than bottom manipulation on iOS.
-  // keyboardHeight = difference between layout viewport and visual viewport.
-  useEffect(() => {
-    const vv = window.visualViewport
-    if (!vv) return
-
-    function updatePosition() {
-      const bar = inputBarRef.current
-      if (!bar) return
-      // Layout viewport height stays constant on iOS; visual viewport shrinks when keyboard opens
-      const keyboardHeight = Math.max(0, window.innerHeight - vv.height)
-      if (keyboardHeight > 10) {
-        // Lift the bar above the keyboard with a small clearance gap
-        bar.style.transform = `translateY(-${keyboardHeight}px)`
-      } else {
-        // Keyboard closed — return to resting position
-        bar.style.transform = ''
-      }
-    }
-
-    vv.addEventListener('resize', updatePosition)
-    vv.addEventListener('scroll', updatePosition)
-    return () => {
-      vv.removeEventListener('resize', updatePosition)
-      vv.removeEventListener('scroll', updatePosition)
-    }
   }, [])
 
   // Close drawer on outside click
@@ -395,7 +361,7 @@ export default function WeaverEntryScreen({
       right:             0,
       bottom:            0,
       width:             '100%',
-      height:            '100%',
+      height:            '100dvh',
       background:        '#f5f2ec',
       overflow:          'hidden',
       // Belt-and-suspenders: stop iOS rubber-band scroll at the element level
@@ -544,23 +510,19 @@ export default function WeaverEntryScreen({
         </nav>
       </div>
 
-      {/* Input bar — fixed at bottom, lifted by JS translateY when keyboard opens.
-           Centering via margin: auto on inner wrapper (not transform) so that
-           the outer ref div can use transform: translateY() freely for keyboard lift. */}
+      {/* Input bar — fixed at bottom using env(safe-area-inset-bottom).
+           interactive-widget=resizes-content in the viewport meta causes iOS
+           to shrink the layout viewport when the keyboard opens, so the bar
+           rises naturally with no JavaScript required. */}
       <div
-        ref={inputBarRef}
         style={{
-          position:       'fixed',
-          bottom:         '0',
-          left:           '0',
-          right:          '0',
-          zIndex:         100,
-          // Safe-area padding so bar clears home indicator at rest.
-          // When keyboard is open, iOS sets safe-area-inset-bottom = 0,
-          // so the padding naturally disappears without extra JS logic.
-          paddingBottom:  'calc(12px + env(safe-area-inset-bottom, 0px))',
-          paddingTop:     '0',
-          // translateY applied by JS when keyboard opens — starts neutral
+          position:      'fixed',
+          bottom:        'env(safe-area-inset-bottom, 0px)',
+          left:          '0',
+          right:         '0',
+          zIndex:        100,
+          paddingBottom: '12px',
+          paddingTop:    '0',
         }}
       >
         {/* Inner wrapper: max-width + horizontal padding, centred via margin */}
