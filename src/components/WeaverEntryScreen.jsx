@@ -91,7 +91,7 @@ function buildRhizome(w, h) {
 
 function initRhizome(canvas) {
   const ctx = canvas.getContext('2d')
-  let w = canvas.width  = window.innerWidth
+  let w = canvas.width  = document.documentElement.clientWidth
   let h = canvas.height = window.innerHeight
 
   let data = buildRhizome(w, h)
@@ -214,7 +214,7 @@ function initRhizome(canvas) {
   raf = requestAnimationFrame(tick)
 
   function resize() {
-    const newW = window.innerWidth
+    const newW = document.documentElement.clientWidth
     const newH = window.innerHeight
     if (newW === w && newH === h) return
     w = canvas.width  = newW
@@ -376,9 +376,11 @@ export default function WeaverEntryScreen({
         right:             0,
         bottom:            0,
         width:             '100%',
+        maxWidth:          '100vw',
         height:            '100dvh',
         background:        '#f5f2ec',
         overflow:          'hidden',
+        overflowX:         'hidden',
         overscrollBehavior: 'none',
       }}>
 
