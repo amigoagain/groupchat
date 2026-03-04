@@ -1,71 +1,108 @@
 HANDOFF.md — GroupChat Session Log
-Last updated: February 25, 2026
+Last updated: March 4, 2026
 
 This file is updated at the end of every session via /handoff. Read this alongside CLAUDE.md at the start of every session.
 
-Most recent session — February 25, 2026 (Amigo Again account)
+Most recent session — March 4, 2026 (Amigo Again account, CC session)
 
 What was completed
 
-Critical bug fix — Weaver entry screen AFRAME crash
+KEPOS PUBLIC ROOM DELETION + STROLL LENGTH LOGGING (from prior CC session, same context window)
 
-Root cause identified and resolved. react-force-graph imported aframe-forcegraph-component which threw a fatal error before AFRAME was available, crashing the entire JS bundle on startup. Black screen on Vercel.
+* supabase-kepos-deletion.sql written with audit log of 36 public rooms; ready to execute in Supabase SQL editor
+* gardenerMemory.js initStrollState: now writes turn_count_chosen (permanent record of user's original intent)
+* LibraryScreen.jsx: My Conversations section now fetches stroll_state for dormant strolls and displays "N of M turns" below dormant label
 
-Fix applied (3 changes to App.jsx):
-* GraphScreen now lazy-loaded via React.lazy() — AFRAME isolated to its own chunk, away from the critical path
-* Two stale setScreen('graph') calls in AuthScreen and BranchConfig back buttons corrected to setScreen('weaver')
-* React.Suspense wrapper added
+KEPOS STROLL AS PRIMARY ENTRY POINT (this session, commit 60750ea)
 
-Result: Main bundle 2,253 kB → 1,015 kB (−55%). Weaver entry screen with Three.js net renders correctly on Vercel. Fix committed and pushed to GitHub.
+This is the major architectural change. The entry screen is no longer a gateway to character browsing and room creation — it is the primary way to begin a conversation. All conversations begin as strolls.
 
-Dual-account handoff architecture established (Amigo account)
+Section 1 — Entry screen redesigned
+* WeaverEntryScreen.jsx completely rewritten: canvas + wordmark + single input bar ("what are you curious about?") + hamburger menu
+* Hamburger drawer (full-height left slide): My Strolls, My Conversations, Library, Characters, Settings, Account
+* All old Gardener room-creation chat, nav bar, InboxScreen panel stripped
+* Input bar submits to onEntrySubmit(text) in App.jsx
 
-This session established the file-based memory architecture:
-* CLAUDE.md created — comprehensive project orientation
-* HANDOFF.md created — this file
-* THESIS_WORKING.md created — living intellectual document
-* .claude/commands/handoff.md created — /handoff slash command
-* All status files cross-referenced and reconciled
+Section 2+3 — Stroll initiation + Gardener mechanics
+* handleEntrySubmit in App.jsx: fixed 10-turn stroll, creates room, inits stroll_state with opening_context and stroll_type, inits gardener_memory with handoff fields + opening_context, inserts user message, gets first Gardener response, inserts it, navigates to chat — user arrives with conversation already started
+* runStrollGardener now returns { text, handoffMeta } — breaking change, ChatInterface updated
+* Gardener base prompt: adds 10-turn compression awareness
+* Gardener prompt: opening_context injected from gardener_memory or stroll_state
+* buildStrollSeasonalInstruction: handoff guidance block added for summer_2/fall_2 seasons
+* [HANDOFF_SUGGEST:CharacterName] and [HANDOFF_QUESTION:CharacterName] markers parsed and stripped from Gardener responses before display
+* initStrollState: now accepts strollType, openingContext, parentStrollId
 
-The four travelling files: CLAUDE.md, HANDOFF.md, THESIS_WORKING.md, and GroupChat_Founding_Document_v0.5.md. These are the shared memory. Everything else is deep reference.
+Section 4 — Stroll 2 (Gardener through character, seamless transition)
+* handleHandoffAccepted in App.jsx: looks up character from database, fetches Stroll 1 gardener_memory for conversation_spine + opening_context, creates character_stroll room with parent_room_id, inits stroll_state with parent_stroll_id, seeds gardener_memory from Stroll 1, calls getStroll2Response for first character response, inserts it, updates currentRoom — screen stays 'chat', no navigation jump
+* getStroll2Response in claudeApi.js: one-on-one character response with Gardener disposition layer; no group-conversation language
+* buildStroll2DispositionLayer in gardenerMemory.js: five Gardener dispositions passed silently into character's system prompt
+* updateHandoffState in gardenerMemory.js: DB write for handoff_status + handoff_character + handoff_mentions
+* ChatInterface: isStroll2 (strollType === 'character_stroll') routes to getStroll2Response
+* ChatInterface: detectAffirmative() — checks user message for yes/sure/ok etc. in handoff window
+* ChatInterface: when affirmative detected, updateHandoffState('accepted'), Gardener makes farewell comment, then onHandoffAccepted(characterName) triggers Stroll 2
+* ChatInterface: thin HR divider (.stroll-2-divider) shown at top of Stroll 2 message list
+* ChatInterface: Stroll 2 disposition layer loaded from gardener_memory of parent stroll on mount
+
+Section 5 — Privacy architecture
+* roomUtils.js: genealogy_visible: true added to all new room Supabase payloads
+* App.css: .stroll-2-divider and .stroll-2-hr styles
+
+Section 6 — DB migration
+* supabase-kepos-stroll-1.sql created: ALTER TABLE for rooms (stroll_type, genealogy_visible), stroll_state (stroll_type, opening_context, parent_stroll_id), gardener_memory (handoff_mentions, handoff_character, handoff_status, opening_context)
+
+Build: clean (Vite build ✓, 574 kB bundle, existing dynamic import warning pre-existing)
+Commit: 60750ea
+Pushed: github.com/amigoagains/groupchat main
 
 What is in progress / not yet confirmed
 
-* All recent CC changes (database rebuild, auth, Weaver routing, branching, graph screen) should be tested across devices to confirm stability
-* Weaver fuzzy name matching fix applied — confirm it's working correctly
-* Room sharing URL bug — believed fixed, needs monitoring
+* supabase-kepos-stroll-1.sql needs to be run in Supabase SQL editor (qmpdgkjbmgntgrzjmcoj)
+* supabase-kepos-deletion.sql also still needs to be run (public room cleanup + turn_count_chosen column)
+* Vercel will auto-deploy from push — confirm live URL after deploy
+* Test full stroll flow: entry input → 10-turn gardener_only → handoff window → Stroll 2 transition
+* Hamburger Settings item is a placeholder (no settings screen) — noted for future
 
 What is blocked
 
-Nothing currently hard-blocked. The AFRAME crash was the primary blocker for graph interface work — that is now resolved.
+Nothing hard-blocked.
 
 Next priorities (in order)
 
-1. Confirm stability — test current build across devices, confirm all recent CC changes are working (auth, Weaver routing, branching, graph screen)
-2. Seed read-only public rooms — add 2-3 rooms to Browse All via Supabase to make the platform feel alive for new users
-3. Graph interface V1 — static nodes/edges, zoom/pan, tap to preview/enter, mobile list view. Weaver entry screen is live; graph interface is next.
+1. Run SQL migrations: supabase-kepos-deletion.sql then supabase-kepos-stroll-1.sql in Supabase editor
+2. Test live on Vercel: entry screen, stroll initiation, drawer nav
+3. Graph interface V1 — static nodes/edges, zoom/pan, tap to preview, tap to enter, mobile list view (react-force-graph or D3)
 4. Graph live updates — Supabase real-time subscriptions
-5. Weaver signal layer — silent quality logging on conversations
-6. Graph signal layer — density viz, emerald emergence indicators
+5. Weaver signal layer — silent quality logging
+6. Community moderation system
+7. Weaver as Commons V3
 
 Open questions active right now
 
-* Where does the graph screen live in app navigation — is the Weaver entry screen the landing page, or is there a separate navigation structure?
-* Naming for the canonical/academic platform vision — still unresolved
-* Scholar outreach sequencing — when does product have enough credibility to approach the first cohort?
+* Stroll dormancy: when does a Stroll 2 (character_stroll) go dormant? Currently no turn cap implemented — uses regular stroll turn tracking which would go to 10 turns. Confirm or set separately.
+* Settings screen: placeholder currently. What should it contain? (API key, theme, account management?)
+* Hamburger "My Strolls" vs "My Conversations" — both currently route to Library. Future: should these open Library to specific sections? Library has sub-navigation; could pass a defaultSection prop.
+* Branch from character_stroll: not implemented — branching from Stroll 2 would need its own handling
 
 Session log (reverse chronological)
 
-Date Account Work done
-Feb 25, 2026 Amigo Again AFRAME crash fix — bundle −55%, Weaver screen live
-Feb 25, 2026 Amigo Handoff architecture established, all four travelling files generated
-Feb 24, 2026 Amigo Founding doc v0.5 — Weaver rename, routing, graph interface, room states, branching mechanics formalized
-Feb 24, 2026 Amigo Again Database rebuild, magic link auth, Weaver routing V1, functional branching, character selection redesign, mobile fixes
-Feb 24, 2026 Amigo Founding doc v0.4 — funding model, academics subsidizing academia
-Feb 24, 2026 Amigo Standing epistemological posture, four-thread architecture
+Date         Account        Work done
+Mar 4, 2026  Amigo Again    KEPOS stroll-as-primary-entry-point — all 6 sections (entry redesign, stroll initiation, Gardener mechanics, Stroll 2, privacy arch, SQL migration)
+Mar 4, 2026  Amigo Again    Public room deletion SQL + stroll length logging in Library
+Mar 3, 2026  Amigo Again    KEPOS FOUR FIXES: Gardener identity leak, response truncation, Library CSS, stroll close
+Mar 3, 2026  Amigo          KEPOS session planning, founding doc amendments
+Feb 25, 2026 Amigo Again    AFRAME crash fix — bundle −55%, Weaver screen live
+Feb 25, 2026 Amigo          Handoff architecture established, all four travelling files generated
 
 Notes for next session
 
-The Weaver entry screen is live. The graph interface is the next major visual milestone — it's also the primary onboarding surface described in the thesis. When it ships, new users will see the living net immediately. That's a significant moment for the product.
+Run both SQL migration files before testing. supabase-kepos-deletion.sql cleans public rooms and adds turn_count_chosen. supabase-kepos-stroll-1.sql adds all the new columns needed for the stroll-as-primary-entry-point architecture.
 
-Before starting the graph V1 build, confirm the current live URL renders the Weaver entry screen correctly and all navigation paths work.
+After migrations, test the full flow end to end on the live URL:
+1. Load entry screen — should show canvas + input bar + hamburger only
+2. Type a question, hit enter — should create stroll room and navigate in with Gardener response already visible
+3. Have a stroll for several turns — confirm season progression
+4. Reach summer_2/fall_2 — Gardener should (optionally) suggest a character
+5. Affirm — Gardener makes farewell, thin HR appears, character_stroll begins
+6. Library → My Conversations/Strolls should show dormant strolls with turn ratio
+
+The Stroll 2 disposition layer is built from Stroll 1's conversation_spine + opening_context. If Stroll 1 memory is thin (early handoff), the layer will be thin too. This is expected — the walk was short, the substrate is thin.

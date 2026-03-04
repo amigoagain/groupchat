@@ -46,7 +46,7 @@ Supabase tables (current schema — rebuilt)
 * users: id, email, username, created_at, auth_id
 * custom_characters: id, name, title, personality, color, verified, variant_of, upvotes, created_by, is_canonical, tags, category
 
-Current app state — February 25, 2026
+Current app state — March 4, 2026
 
 Live and working
 
@@ -70,32 +70,36 @@ Live and working
 * Functional branching: tap-to-select, drag handles, branch configuration screen, context injected into new room system prompts, genealogy chain stored
 * Weaver entry screen with Three.js net — LIVE on Vercel
 
-Most recent fix (Amigo Again session, February 25, 2026)
+Most recent work (Amigo Again session, March 4, 2026, commit 60750ea)
 
-Critical AFRAME crash resolved. Root cause: react-force-graph imported aframe-forcegraph-component, which threw "Error: Component attempted to register before AFRAME was available" at module load time, crashing the entire JS bundle before React mounted. Black screen on Vercel.
+KEPOS STROLL AS PRIMARY ENTRY POINT — all 6 sections shipped:
 
-Fix (3 changes to App.jsx):
-1. GraphScreen lazy-loaded via React.lazy() — isolates AFRAME to its own chunk, away from the critical path
-2. Two stale setScreen('graph') calls in AuthScreen and BranchConfig back buttons corrected to setScreen('weaver')
-3. React.Suspense wrapper added around the GraphScreen render block
+1. Entry screen redesigned — WeaverEntryScreen: canvas + wordmark + input bar + hamburger drawer. All old Gardener room-creation UI removed.
+2. Stroll initiation from entry — handleEntrySubmit: fixed 10-turn stroll, user arrives with Gardener response already visible
+3. Gardener mechanics — runStrollGardener returns { text, handoffMeta }, opening_context injected, handoff guidance in summer_2/fall_2
+4. Stroll 2 — handleHandoffAccepted: character_stroll room with disposition layer, seamless transition in same chat view, thin HR divider
+5. Privacy architecture — genealogy_visible added to all new rooms, roomUtils updated
+6. SQL migration — supabase-kepos-stroll-1.sql (run in Supabase editor: stroll_type, genealogy_visible, opening_context, parent_stroll_id, handoff_mentions, handoff_character, handoff_status)
 
-Result: Main bundle 2,253 kB → 1,015 kB (−55%). Weaver entry screen renders correctly on Vercel.
+PENDING: Run supabase-kepos-deletion.sql and supabase-kepos-stroll-1.sql in Supabase editor before testing.
 
 Known issues
 
 * Room sharing URL bug — previously intermittent, believed fixed, monitor
 * Weaver fuzzy name matching — fix applied in last CC session, confirm stable
+* Stroll 2 turn limit — character_stroll rooms run standard stroll tracking (10 turns); confirm this is the right cap or set separately
 
 Pending build work — priority order
 
-1. Confirm all recent CC changes stable across devices
-2. Seed 2-3 read-only public rooms in Browse All via Supabase
+1. Run SQL migrations: supabase-kepos-deletion.sql then supabase-kepos-stroll-1.sql in Supabase editor
+2. Test full stroll flow on live URL: entry → 10-turn gardener_only → handoff → Stroll 2 → thin HR
 3. Graph interface V1 — static nodes/edges, zoom/pan, tap to preview, tap to enter, mobile list view (react-force-graph or D3)
 4. Graph live updates — Supabase real-time subscriptions
-5. Weaver signal layer — silent quality logging on every conversation (coherence/depth/pattern emergence stored in new Supabase table)
-6. Graph signal layer — density visualization, emerald emergence indicators
-7. Community moderation system
-8. Weaver as Commons V3
+5. Settings screen — currently placeholder; define contents
+6. Weaver signal layer — silent quality logging on every conversation
+7. Graph signal layer — density visualization, emerald emergence indicators
+8. Community moderation system
+9. Weaver as Commons V3
 
 CC prompting conventions
 
