@@ -263,18 +263,22 @@ export default function WeaverEntryScreen({
   const [inputText,    setInputText]    = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [drawerOpen,   setDrawerOpen]   = useState(false)
-  // rootH tracks visualViewport.height so the layout shrinks correctly when
-  // the iOS keyboard opens. visualViewport.height is the only reliable signal
-  // for the visible area above the keyboard on iOS Safari.
+  // rootH/rootY track the visual viewport so the layout fills exactly the
+  // visible area above the keyboard on iOS Safari.
+  // vv.height  → how tall the root should be
+  // vv.offsetTop → how far iOS has scrolled the page (we follow it via top:)
   const [rootH, setRootH] = useState(() => window.visualViewport?.height ?? window.innerHeight)
+  const [rootY, setRootY] = useState(0)
 
   const canvasRef        = useRef(null)
   const inputRef         = useRef(null)
   const canvasWrapperRef = useRef(null)
 
   // Lock html/body scroll while entry screen is mounted.
-  // overflow:hidden stops rubber-band scroll. position:fixed is omitted —
-  // it causes layout shift on iOS when the keyboard opens.
+  // overflow:hidden prevents rubber-band scroll. The scroll event listener
+  // immediately resets any document scroll that iOS Safari triggers when the
+  // keyboard opens (iOS tries to scroll the page to reveal the focused input,
+  // which would push the fixed root container above the visible area).
   useEffect(() => {
     const html = document.documentElement
     const body = document.body
@@ -282,19 +286,27 @@ export default function WeaverEntryScreen({
     const prevBodyOverflow = body.style.overflow
     html.style.overflow = 'hidden'
     body.style.overflow = 'hidden'
+    const resetScroll = () => window.scrollTo(0, 0)
+    window.addEventListener('scroll', resetScroll)
     return () => {
       html.style.overflow = prevHtmlOverflow
       body.style.overflow = prevBodyOverflow
+      window.removeEventListener('scroll', resetScroll)
     }
   }, [])
 
-  // Track visible area above iOS keyboard via visualViewport.
-  // vv.resize fires as the keyboard animates; vv.scroll fires when Safari
-  // adjusts the visual viewport offset (rare but possible).
+  // Track the visual viewport size and position.
+  // vv.resize → keyboard opening/closing (height changes)
+  // vv.scroll → iOS scrolled the visual viewport offset (offsetTop changes)
+  // Both rootH and rootY are updated together so the root div always fills
+  // exactly the visible area above the keyboard.
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
-    const update = () => setRootH(vv.height)
+    const update = () => {
+      setRootH(vv.height)
+      setRootY(vv.offsetTop)
+    }
     vv.addEventListener('resize', update)
     vv.addEventListener('scroll', update)
     return () => {
@@ -402,7 +414,7 @@ export default function WeaverEntryScreen({
       flexDirection:     'column',
       height:            rootH,
       position:          'fixed',
-      top:               0,
+      top:               rootY,
       left:              0,
       right:             0,
       overflow:          'hidden',
