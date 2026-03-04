@@ -603,9 +603,10 @@ export default function WeaverEntryScreen({
                 outline:     'none',
                 resize:      'none',
                 // Warm stone — legible on light frosted background
+                // 16px: iOS Safari auto-zoom threshold — below this it zooms on focus
                 color:       '#2e3420',
                 fontFamily:  'Georgia, serif',
-                fontSize:    '15px',
+                fontSize:    '16px',
                 lineHeight:  '1.5',
                 padding:     '2px 0',
                 minHeight:   '24px',
