@@ -6,9 +6,10 @@
  *   2. Canvas (flex 1): rhizome animation fills remaining space
  *   3. Input bar (auto): frosted-glass pill at bottom
  *
- * Keyboard handling: CSS only. The flex column responds to
- * viewport height changes (iOS viewport-fit=cover). No JS
- * keyboard listeners needed.
+ * Keyboard handling: rootH state tracks visualViewport.height.
+ * When iOS keyboard opens, vv.height shrinks → rootH shrinks →
+ * root container shrinks → canvas (flex:1) shrinks → input bar
+ * stays visible. Canvas bitmap is rebuilt (debounced 150 ms).
  *
  * Drawer: position fixed, overlays all three layers.
  * ─────────────────────────────────────────────────────────────
@@ -102,6 +103,7 @@ function initRhizome(canvas) {
   let lastSpawn = 0
   let raf  = null
   let lastTs = 0
+  let resizeTimer = null
 
   // Pre-render static structure to offscreen canvas
   let offscreen = document.createElement('canvas')
@@ -215,27 +217,35 @@ function initRhizome(canvas) {
 
   raf = requestAnimationFrame(tick)
 
-  // Resize reads canvas element dimensions — the flex layout determines the
-  // canvas wrapper size, which the canvas fills via width/height:100% CSS.
-  // Equality guard prevents unnecessary rebuilds on non-size events.
+  // Resize: debounced so keyboard animation doesn't trigger a rebuild on every
+  // intermediate frame. window.resize handles orientation/desktop changes;
+  // ResizeObserver handles container-driven changes (keyboard open/close).
   function resize() {
-    const newW = canvas.offsetWidth
-    const newH = canvas.offsetHeight
-    if (newW === w && newH === h) return
-    w = canvas.width  = newW
-    h = canvas.height = newH
-    offscreen.width  = w
-    offscreen.height = h
-    offCtx = offscreen.getContext('2d')
-    data = buildRhizome(w, h)
-    tips = []
-    renderOffscreen()
+    clearTimeout(resizeTimer)
+    resizeTimer = setTimeout(() => {
+      const newW = canvas.offsetWidth
+      const newH = canvas.offsetHeight
+      if (newW === w && newH === h) return
+      w = canvas.width  = newW
+      h = canvas.height = newH
+      offscreen.width  = w
+      offscreen.height = h
+      offCtx = offscreen.getContext('2d')
+      data = buildRhizome(w, h)
+      tips = []
+      renderOffscreen()
+    }, 150)
   }
   window.addEventListener('resize', resize)
 
+  const ro = new ResizeObserver(resize)
+  ro.observe(canvas)
+
   return () => {
     cancelAnimationFrame(raf)
+    clearTimeout(resizeTimer)
     window.removeEventListener('resize', resize)
+    ro.disconnect()
   }
 }
 
@@ -253,6 +263,10 @@ export default function WeaverEntryScreen({
   const [inputText,    setInputText]    = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [drawerOpen,   setDrawerOpen]   = useState(false)
+  // rootH tracks visualViewport.height so the layout shrinks correctly when
+  // the iOS keyboard opens. visualViewport.height is the only reliable signal
+  // for the visible area above the keyboard on iOS Safari.
+  const [rootH, setRootH] = useState(() => window.visualViewport?.height ?? window.innerHeight)
 
   const canvasRef        = useRef(null)
   const inputRef         = useRef(null)
@@ -271,6 +285,21 @@ export default function WeaverEntryScreen({
     return () => {
       html.style.overflow = prevHtmlOverflow
       body.style.overflow = prevBodyOverflow
+    }
+  }, [])
+
+  // Track visible area above iOS keyboard via visualViewport.
+  // vv.resize fires as the keyboard animates; vv.scroll fires when Safari
+  // adjusts the visual viewport offset (rare but possible).
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const update = () => setRootH(vv.height)
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
+    return () => {
+      vv.removeEventListener('resize', update)
+      vv.removeEventListener('scroll', update)
     }
   }, [])
 
@@ -371,12 +400,11 @@ export default function WeaverEntryScreen({
     <div style={{
       display:           'flex',
       flexDirection:     'column',
-      height:            '100dvh',
+      height:            rootH,
       position:          'fixed',
       top:               0,
       left:              0,
       right:             0,
-      bottom:            0,
       overflow:          'hidden',
       background:        '#f5f2ec',
       overscrollBehavior: 'none',
