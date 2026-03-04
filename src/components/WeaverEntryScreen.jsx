@@ -364,12 +364,17 @@ export default function WeaverEntryScreen({
       height:            '100dvh',
       background:        '#f5f2ec',
       overflow:          'hidden',
-      // Belt-and-suspenders: stop iOS rubber-band scroll at the element level.
-      // pan-x pan-y allows iOS to resolve touch conflicts cleanly — no actual
-      // scrolling occurs because the container is position:fixed + overflow:hidden,
-      // but 'none' was causing a visible layout shift on textarea tap.
+      // touchAction:'none' blocks all scroll gestures on the canvas/background.
+      // The onTouchStart handler below allows touches through to the textarea
+      // without changing the parent touchAction value, avoiding the iOS
+      // conflict that caused layout shift.
       overscrollBehavior: 'none',
-      touchAction:       'pan-x pan-y',
+      touchAction:       'none',
+    }}
+    onTouchStart={(e) => {
+      if (e.target !== inputRef.current) {
+        e.preventDefault()
+      }
     }}>
 
       {/* Canvas layer */}
