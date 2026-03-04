@@ -379,11 +379,6 @@ export default function WeaverEntryScreen({
       action: () => { setDrawerOpen(false); onOpenLibrary?.() },
     },
     {
-      label: 'Characters',
-      icon:  '◈',
-      action: () => { setDrawerOpen(false); onStartRoom?.() },
-    },
-    {
       label: 'Settings',
       icon:  '⚙',
       action: () => { setDrawerOpen(false) }, // placeholder

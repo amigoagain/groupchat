@@ -337,11 +337,24 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
   const [activeSection, setActiveSection] = useState('architecture')
   const [data,          setData]          = useState({})
   const [loading,       setLoading]       = useState(false)
+  const [isMobile,      setIsMobile]      = useState(() => window.innerWidth < 768)
+  const [sidebarOpen,   setSidebarOpen]   = useState(() => window.innerWidth >= 768)
 
   // Section changes also load data
   useEffect(() => {
     loadSection(activeSection)
   }, [activeSection, userId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Track viewport width — collapse sidebar on mobile, always open on desktop
+  useEffect(() => {
+    function onResize() {
+      const mobile = window.innerWidth < 768
+      setIsMobile(mobile)
+      if (!mobile) setSidebarOpen(true)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   // Switch tab → go to first section in that tab
   const handleTabSwitch = (tab) => {
@@ -424,14 +437,66 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
       </div>
 
       {/* Body */}
-      <div style={S.body}>
-        {/* Sidebar */}
-        <div style={S.sidebar}>
+      <div style={{ ...S.body, position: 'relative' }}>
+
+        {/* Sidebar toggle — mobile only, shown when sidebar is collapsed */}
+        {isMobile && !sidebarOpen && (
+          <button
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open navigation"
+            style={{
+              position:   'absolute',
+              left:       0,
+              top:        '20px',
+              zIndex:     6,
+              background: 'none',
+              border:     'none',
+              cursor:     'pointer',
+              padding:    '12px 8px',
+              color:      '#6b7c47',
+              display:    'flex',
+              alignItems: 'center',
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </button>
+        )}
+
+        {/* Scrim — mobile only, tapping outside sidebar closes it */}
+        {isMobile && sidebarOpen && (
+          <div
+            onClick={() => setSidebarOpen(false)}
+            style={{
+              position:   'absolute',
+              inset:      0,
+              zIndex:     5,
+              background: 'rgba(0,0,0,0.30)',
+            }}
+          />
+        )}
+
+        {/* Sidebar — inline on desktop, absolute overlay on mobile */}
+        <div style={isMobile ? {
+          position:    'absolute',
+          top:         0,
+          left:        0,
+          bottom:      0,
+          width:       '200px',
+          borderRight: '1px solid #2a2a2a',
+          padding:     '16px 0',
+          overflowY:   'auto',
+          zIndex:      10,
+          background:  '#111',
+          transform:   sidebarOpen ? 'translateX(0)' : 'translateX(-220px)',
+          transition:  'transform 0.24s cubic-bezier(0.22, 1, 0.36, 1)',
+        } : S.sidebar}>
           {sections.map(s => (
             <button
               key={s.id}
               style={S.sidebarItem(activeSection === s.id)}
-              onClick={() => setActiveSection(s.id)}
+              onClick={() => { setActiveSection(s.id); if (isMobile) setSidebarOpen(false) }}
             >
               {s.label}
             </button>
@@ -715,98 +780,75 @@ function MyConvosSection({ rooms, strollStateMap = {}, onOpenRoom, onOpenBranchC
   return (
     <div>
       <h2 style={S.sectionTitle}>My Conversations</h2>
-      {rooms.map(room => {
-        const isStroll  = room.roomMode === 'stroll' || room.mode?.id === 'stroll'
-        const isDormant = Boolean(room.dormantAt || room.dormant_at)
-        const chars     = (room.characters || []).map(c => c.name).join(', ')
-        const roomLabel = isStroll ? 'Stroll' : (chars || 'Unnamed room')
-        const ss        = isStroll && isDormant ? (strollStateMap[room.id] || null) : null
+      <div style={{ borderTop: '1px solid #1e1e1e' }}>
+        {rooms.map(room => {
+          const chars       = (room.characters || []).map(c => c.name).join(', ')
+          const displayName = chars || 'Gardener'
+          const preview     = room.lastMessagePreview || ''
+          const ts          = relativeTime(room.lastActivity || room.createdAt)
 
-        return (
-          <div
-            key={room.code}
-            style={{
-              ...S.card,
-              opacity:    isDormant ? 0.75 : 1,
-              borderLeft: isStroll ? '3px solid #4a5a24' : '1px solid #2a2a2a',
-              marginLeft: isDormant ? '8px' : '0',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div style={{ ...S.cardTitle, marginBottom: '4px' }}>
-                {roomLabel}
-                {isStroll && isDormant && (
-                  <span style={{ fontSize: '10px', color: '#5a6a30', marginLeft: '8px', fontFamily: 'monospace', fontWeight: 'normal', letterSpacing: '0.08em' }}>
-                    dormant
-                  </span>
-                )}
+          return (
+            <button
+              key={room.code}
+              onClick={() => onOpenRoom && onOpenRoom(room.code)}
+              style={{
+                display:      'block',
+                width:        '100%',
+                textAlign:    'left',
+                background:   'none',
+                border:       'none',
+                borderBottom: '1px solid #1e1e1e',
+                padding:      '14px 2px',
+                cursor:       'pointer',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+            >
+              <div style={{
+                display:        'flex',
+                justifyContent: 'space-between',
+                alignItems:     'baseline',
+                gap:            '12px',
+                marginBottom:   '3px',
+              }}>
+                <span style={{
+                  fontSize:     '13px',
+                  color:        '#8a9a70',
+                  fontFamily:   'Georgia, serif',
+                  overflow:     'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace:   'nowrap',
+                  flexShrink:   1,
+                  minWidth:     0,
+                }}>
+                  {displayName}
+                </span>
+                <span style={{
+                  fontSize:   '11px',
+                  color:      '#4a4a4a',
+                  fontFamily: 'monospace',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}>
+                  {ts}
+                </span>
               </div>
-              {!isStroll && (
-                <button
-                  style={{ ...S.btn(), fontSize: '11px', padding: '4px 10px' }}
-                  onClick={() => onOpenRoom && onOpenRoom(room.code)}
-                >
-                  open
-                </button>
+              {preview && (
+                <div style={{
+                  fontSize:     '12px',
+                  color:        '#4a4a4a',
+                  overflow:     'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace:   'nowrap',
+                  lineHeight:   '1.4',
+                }}>
+                  {preview}
+                </div>
               )}
-            </div>
-
-            <div style={{ fontSize: '12px', color: '#5a5a5a', marginBottom: '4px' }}>
-              {isStroll
-                ? (isDormant ? 'dormant · branchable' : 'stroll in progress')
-                : (room.lastMessagePreview || 'No messages yet')}
-            </div>
-
-            {/* Turns ratio — only for dormant strolls with stroll_state data */}
-            {ss && (
-              <div style={{ fontSize: '11px', color: '#6a7a6a', fontFamily: 'monospace', marginBottom: '4px' }}>
-                {ss.turns_elapsed ?? '—'} of {ss.turn_count_chosen ?? ss.turn_count_total ?? '—'} turns
-              </div>
-            )}
-            <div style={{ fontSize: '11px', color: '#3a3a3a', fontFamily: 'monospace' }}>
-              {relativeTime(room.lastActivity || room.createdAt)} · {room.code}
-            </div>
-
-            {/* Dormant stroll — Branch and Continue stroll actions */}
-            {isStroll && isDormant && (
-              <div style={S.strollActionRow}>
-                <button
-                  style={S.strollBtn('continue')}
-                  onClick={() => onContinueStroll && onContinueStroll(room)}
-                  title="Continue stroll — creates a new stroll branching from this one"
-                >
-                  Continue stroll
-                </button>
-                <button
-                  style={S.strollBtn('branch')}
-                  onClick={() => onOpenBranchConfig && onOpenBranchConfig({
-                    parentRoomId:       room.id,
-                    branchedAtSequence: null,
-                    branchDepth:        (room.branchDepth || 0) + 1,
-                    foundingMessages:   [],
-                    parentCharacters:   [],
-                  })}
-                  title="Branch — opens branch config with this stroll as parent"
-                >
-                  Branch
-                </button>
-              </div>
-            )}
-
-            {/* Active stroll — open */}
-            {isStroll && !isDormant && (
-              <div style={{ marginTop: '10px' }}>
-                <button
-                  style={{ ...S.btn('primary'), fontSize: '11px' }}
-                  onClick={() => onOpenRoom && onOpenRoom(room.code)}
-                >
-                  continue stroll
-                </button>
-              </div>
-            )}
-          </div>
-        )
-      })}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
