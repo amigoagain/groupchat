@@ -230,13 +230,10 @@ function initRhizome(canvas) {
     renderOffscreen()
   }
   window.addEventListener('resize', resize)
-  // visualViewport fires its own resize when keyboard opens/closes — cover both
-  window.visualViewport?.addEventListener('resize', resize)
 
   return () => {
     cancelAnimationFrame(raf)
     window.removeEventListener('resize', resize)
-    window.visualViewport?.removeEventListener('resize', resize)
   }
 }
 
@@ -300,7 +297,7 @@ export default function WeaverEntryScreen({
       const bar = inputBarRef.current
       if (!bar) return
       // Layout viewport height stays constant on iOS; visual viewport shrinks when keyboard opens
-      const keyboardHeight = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      const keyboardHeight = Math.max(0, window.innerHeight - vv.height)
       if (keyboardHeight > 10) {
         // Lift the bar above the keyboard with a small clearance gap
         bar.style.transform = `translateY(-${keyboardHeight}px)`

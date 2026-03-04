@@ -181,7 +181,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     const vv = window.visualViewport
     if (!vv) return
     const handleResize = () => {
-      const keyboardHeight = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop))
+      const keyboardHeight = Math.max(0, window.innerHeight - vv.height)
       document.documentElement.style.setProperty('--chat-keyboard-offset', `${keyboardHeight}px`)
     }
     handleResize()
