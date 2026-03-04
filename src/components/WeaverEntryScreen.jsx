@@ -248,6 +248,7 @@ export default function WeaverEntryScreen({
   const [inputText,    setInputText]    = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [drawerOpen,   setDrawerOpen]   = useState(false)
+  const [vpLog,        setVpLog]        = useState([])
 
   const canvasRef = useRef(null)
   const inputRef  = useRef(null)
@@ -291,6 +292,33 @@ export default function WeaverEntryScreen({
     container.addEventListener('touchmove', preventScroll, { passive: false })
     return () => {
       container.removeEventListener('touchmove', preventScroll)
+    }
+  }, [])
+
+  // ── Diagnostic viewport overlay (temporary) ─────────────────────────────────
+  useEffect(() => {
+    const log = () => {
+      const vv = window.visualViewport
+      const entry = [
+        'iW:' + window.innerWidth,
+        'iH:' + window.innerHeight,
+        'cW:' + document.documentElement.clientWidth,
+        'vW:' + Math.round(vv?.width ?? 0),
+        'vH:' + Math.round(vv?.height ?? 0),
+        'vX:' + Math.round(vv?.offsetLeft ?? 0),
+        'vY:' + Math.round(vv?.offsetTop ?? 0),
+        'sc:' + (vv?.scale ?? 1).toFixed(2),
+      ].join(' ')
+      setVpLog(prev => [entry, ...prev].slice(0, 8))
+    }
+    log()
+    window.visualViewport?.addEventListener('resize', log)
+    window.visualViewport?.addEventListener('scroll', log)
+    window.addEventListener('resize', log)
+    return () => {
+      window.visualViewport?.removeEventListener('resize', log)
+      window.visualViewport?.removeEventListener('scroll', log)
+      window.removeEventListener('resize', log)
     }
   }, [])
 
@@ -611,6 +639,31 @@ export default function WeaverEntryScreen({
           </div>
         </div>
       </div>
+
+      {/* ── Diagnostic viewport overlay (temporary) ── */}
+      {vpLog.length > 0 && (
+        <div style={{
+          position:      'fixed',
+          top:           '60px',
+          left:          '10px',
+          right:         '10px',
+          zIndex:        999,
+          background:    'rgba(0,0,0,0.75)',
+          color:         '#00ff00',
+          fontFamily:    'monospace',
+          fontSize:      '10px',
+          padding:       '8px',
+          borderRadius:  '6px',
+          pointerEvents: 'none',
+          lineHeight:    '1.6',
+        }}>
+          {vpLog.map((line, i) => (
+            <div key={i} style={{ opacity: i === 0 ? 1 : 0.5 - i * 0.05 }}>
+              {line}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
