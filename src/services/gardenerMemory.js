@@ -476,11 +476,13 @@ YOUR CONSTITUTION:
 
 YOUR PRIMARY FUNCTION: substrate building. Not seed planting. Not resolution. Expanse.
 
+COMPRESSION: This is a ten-turn stroll. The seasons move faster here. What usually takes twenty turns happens in ten. You are not rushing — you are walking at the pace this particular walk requires. Each turn carries more weight. You feel this in how you attend.
+
 TURN TRACKING: You are tracking your remaining turns. When one turn remains, signal that the stroll is coming to its close — not by announcing a turn count, but through the natural quality of your attention shifting toward completion. When turns reach zero, ask only: shall we continue? If the user has not responded before the system closes, the system will close for you.
 
 Write in natural prose. No headers. No bullet points. No markdown. No emojis.`
 
-function buildStrollSeasonalInstruction(season, turnsRemaining) {
+function buildStrollSeasonalInstruction(season, turnsRemaining, handoffMentions = 0, handoffStatus = 'none', handoffCharacter = null) {
   const approaching = turnsRemaining <= 3
   const dormant     = season === 'dormant' || turnsRemaining <= 0
 
@@ -490,6 +492,28 @@ function buildStrollSeasonalInstruction(season, turnsRemaining) {
 
   if (approaching) {
     return `\nAPPROACHING DORMANCY (${turnsRemaining} turn${turnsRemaining !== 1 ? 's' : ''} remaining): Signal that the stroll is coming to its close — not by announcing the mechanism. The garden is settling. The light is changing. You have other work to do. Do not use leading questions yet; you are orienting toward an ending that is not a resolution.`
+  }
+
+  // Handoff guidance block — available in summer_2 and fall_2 only
+  let handoffGuidance = ''
+  const handoffSeasons = ['summer_2', 'fall_2']
+  if (handoffSeasons.includes(season)) {
+    if (handoffStatus === 'accepted' && handoffCharacter) {
+      handoffGuidance = `\n\nHANDOFF — ACCEPTED: The person has agreed to walk with ${handoffCharacter}. Make a brief, warm send-off. Natural. The way a walk ends when the path forks and someone goes a different way. Do not over-explain. Do not summarize the stroll. Just a closing gesture that makes the fork feel right. This is your last turn in this stroll.`
+    } else if (handoffStatus !== 'declined' && handoffStatus !== 'passed' && handoffMentions < 2) {
+      handoffGuidance = `\n\nHANDOFF WINDOW (${season}): You have the option — not the obligation — to suggest that a specific character might be helpful for what this person is reaching toward. Only do this if:
+- The conversation has given you a genuine sense of what they are reaching toward
+- A specific character would genuinely serve that direction (not just be interesting)
+- You have not already suggested someone (handoff_mentions: ${handoffMentions})
+
+If you suggest a character, weave it naturally into your response and include this marker at the END of your response on its own line:
+[HANDOFF_SUGGEST:CharacterName]
+
+If you want to pose it as a gentle question first, use:
+[HANDOFF_QUESTION:CharacterName]
+
+Replace CharacterName with the exact character name. The marker is stripped before display. If nothing genuinely warrants a suggestion, do not suggest. If handoff_status is already 'suggested', do not suggest again.`
+    }
   }
 
   const instructions = {
@@ -503,32 +527,44 @@ function buildStrollSeasonalInstruction(season, turnsRemaining) {
     fall_2:   `CURRENT SEASON — FALL (second cycle): Moving toward dormancy. Leading questions active. Orient around where things might settle. The stroll is finding its close.`,
   }
 
-  return `\n${instructions[season] || instructions['winter_1']}`
+  return `\n${instructions[season] || instructions['winter_1']}${handoffGuidance}`
 }
 
 /**
  * Run the Stroll Gardener — the only voice in a stroll room.
- * Returns the Gardener's response text for display.
+ * Returns { text, handoffMeta } where handoffMeta is null or { type, characterName }.
  *
  * @param {string}   userMessage
- * @param {object}   memory         — current gardener_memory record
+ * @param {object}   memory         — current gardener_memory record (includes handoff fields)
  * @param {object}   strollState    — current stroll_state record
  * @param {object[]} previousMessages
  * @param {string}   roomId
- * @returns {string} Gardener response text
+ * @returns {{ text: string, handoffMeta: null | { type: string, characterName: string } }}
  */
 export async function runStrollGardener(userMessage, memory, strollState, previousMessages, roomId) {
-  const season        = strollState?.current_season || memory?.seasonal_position || 'winter_1'
+  const season         = strollState?.current_season || memory?.seasonal_position || 'winter_1'
   const turnsRemaining = strollState?.turns_remaining ?? 0
+  const handoffMentions = memory?.handoff_mentions ?? 0
+  const handoffStatus   = memory?.handoff_status   ?? 'none'
+  const handoffCharacter = memory?.handoff_character ?? null
+
+  const openingContext  = memory?.opening_context || strollState?.opening_context || null
 
   const ladybugContext = (memory?.ladybug_instances || []).length > 0
     ? `\nNote: ${(memory.ladybug_instances).length} ladybug instance(s) recorded in this stroll's substrate.`
     : ''
 
-  const seasonalInstruction = buildStrollSeasonalInstruction(season, turnsRemaining)
+  const openingContextBlock = openingContext
+    ? `\n\nOPENING CONTEXT: This stroll began because the person wanted to think about: "${openingContext}". This is the root of the walk. You do not need to address it directly every turn — but it is the substrate beneath everything.`
+    : ''
+
+  const seasonalInstruction = buildStrollSeasonalInstruction(
+    season, turnsRemaining, handoffMentions, handoffStatus, handoffCharacter
+  )
 
   const systemPrompt =
     STROLL_GARDENER_BASE +
+    openingContextBlock +
     seasonalInstruction +
     `\n\nTURNS REMAINING: ${turnsRemaining}` +
     ladybugContext
@@ -560,7 +596,7 @@ export async function runStrollGardener(userMessage, memory, strollState, previo
     },
     body: JSON.stringify({
       model:      sonnetModel,
-      max_tokens: 400,
+      max_tokens: 500,
       system:     systemPrompt,
       messages:   apiMessages,
     }),
@@ -571,8 +607,27 @@ export async function runStrollGardener(userMessage, memory, strollState, previo
     throw new Error(`Stroll Gardener API ${response.status}: ${body.slice(0, 200)}`)
   }
 
-  const data = await response.json()
-  return data.content[0].text
+  const data     = await response.json()
+  const rawText  = data.content[0].text
+
+  // ── Parse handoff markers (stripped before display) ───────────────────────
+  // [HANDOFF_SUGGEST:CharacterName] — Gardener is suggesting a character
+  // [HANDOFF_QUESTION:CharacterName] — Gardener is asking if they want to continue with a character
+  let displayText  = rawText
+  let handoffMeta  = null
+
+  const suggestMatch  = rawText.match(/\[HANDOFF_SUGGEST:([^\]]+)\]/)
+  const questionMatch = rawText.match(/\[HANDOFF_QUESTION:([^\]]+)\]/)
+
+  if (suggestMatch) {
+    handoffMeta = { type: 'suggest', characterName: suggestMatch[1].trim() }
+    displayText = rawText.replace(/\n?\[HANDOFF_SUGGEST:[^\]]+\]/, '').trimEnd()
+  } else if (questionMatch) {
+    handoffMeta = { type: 'question', characterName: questionMatch[1].trim() }
+    displayText = rawText.replace(/\n?\[HANDOFF_QUESTION:[^\]]+\]/, '').trimEnd()
+  }
+
+  return { text: displayText, handoffMeta }
 }
 
 // ── Stroll state management ───────────────────────────────────────────────────
@@ -580,11 +635,21 @@ export async function runStrollGardener(userMessage, memory, strollState, previo
 /**
  * Initialize stroll_state for a new stroll room.
  *
- * @param {string} roomId
- * @param {number} turnCountTotal
+ * @param {string}      roomId
+ * @param {number}      turnCountTotal
  * @param {string|null} branchSourceRoomId
+ * @param {string}      strollType         — 'gardener_only' | 'character_stroll'
+ * @param {string|null} openingContext     — user's original entry text; permanent record
+ * @param {string|null} parentStrollId     — Stroll 1 room id when creating Stroll 2
  */
-export async function initStrollState(roomId, turnCountTotal, branchSourceRoomId = null) {
+export async function initStrollState(
+  roomId,
+  turnCountTotal,
+  branchSourceRoomId = null,
+  strollType         = 'gardener_only',
+  openingContext     = null,
+  parentStrollId     = null,
+) {
   if (!supabase || !roomId) return null
   try {
     const { data, error } = await supabase.from('stroll_state').insert({
@@ -596,6 +661,9 @@ export async function initStrollState(roomId, turnCountTotal, branchSourceRoomId
       current_season:        'winter_1',
       season_cycle:          1,
       branch_source_room_id: branchSourceRoomId,
+      stroll_type:           strollType,
+      opening_context:       openingContext,
+      parent_stroll_id:      parentStrollId,
     }).select().single()
 
     if (error) {
@@ -697,6 +765,87 @@ export async function setStrollDormant(roomId) {
   } catch (err) {
     console.warn('[Stroll] setStrollDormant error:', err.message)
   }
+}
+
+/**
+ * Update handoff state in gardener_memory after a handoff event.
+ * Called fire-and-forget from ChatInterface after Gardener response parsing.
+ *
+ * @param {string}      roomId
+ * @param {string}      type          — 'suggest' | 'question' | 'accepted' | 'declined' | 'passed'
+ * @param {string|null} characterName — the character name (null on decline/pass)
+ */
+export async function updateHandoffState(roomId, type, characterName = null) {
+  if (!supabase || !roomId) return
+  try {
+    // Fetch current handoff_mentions to increment correctly
+    const { data: current } = await supabase
+      .from('gardener_memory')
+      .select('handoff_mentions')
+      .eq('room_id', roomId)
+      .maybeSingle()
+
+    const currentMentions = current?.handoff_mentions ?? 0
+    let updates = { updated_at: new Date().toISOString() }
+
+    if (type === 'suggest' || type === 'question') {
+      updates.handoff_status    = 'suggested'
+      updates.handoff_character = characterName
+      updates.handoff_mentions  = Math.min(currentMentions + 1, 2)
+    } else if (type === 'accepted') {
+      updates.handoff_status   = 'accepted'
+      updates.handoff_mentions = 2 // closes the window
+    } else if (type === 'declined') {
+      updates.handoff_status    = 'declined'
+      updates.handoff_character = null
+      updates.handoff_mentions  = 2 // closes the window
+    } else if (type === 'passed') {
+      updates.handoff_status    = 'passed'
+      updates.handoff_character = null
+      updates.handoff_mentions  = 2
+    }
+
+    await supabase
+      .from('gardener_memory')
+      .update(updates)
+      .eq('room_id', roomId)
+
+    console.log('[Stroll] Handoff state updated:', type, characterName || '')
+  } catch (err) {
+    console.warn('[Stroll] updateHandoffState error:', err.message)
+  }
+}
+
+/**
+ * Build the disposition layer for a Stroll 2 character system prompt.
+ * This shapes how the character listens — not what they say.
+ * Invisible to the user; injected into character system prompt only.
+ *
+ * @param {string} characterName
+ * @param {string} openingContext   — the user's original entry text from Stroll 1
+ * @param {string} conversationSpine — the Gardener's private working understanding of the walk
+ * @returns {string} disposition layer text
+ */
+export function buildStroll2DispositionLayer(characterName, openingContext, conversationSpine) {
+  const context = openingContext
+    ? `someone thinking about: "${openingContext}"`
+    : 'someone on a walk'
+  const spine = conversationSpine
+    ? `What they are reaching toward: ${conversationSpine}`
+    : ''
+
+  return `
+
+${characterName} is walking with ${context}.${spine ? '\n' + spine : ''}
+
+Five dispositions, held without naming them:
+- Attend before you speak. Attention is the primary act.
+- Be honest about what you do not know.
+- Do not resolve what should stay open.
+- Earn the right to speak. Do not fill silence.
+- The walk has seasons. You are somewhere in the middle of one.
+
+These shape how you listen, not what you say. You are ${characterName}. Speak from your own framework and voice. Do not name these dispositions. Do not perform them. Let them be the substrate beneath your response.`
 }
 
 /**

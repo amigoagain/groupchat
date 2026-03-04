@@ -19,13 +19,23 @@ import UsernameModal from './components/UsernameModal.jsx'
 import DevPanel from './components/DevPanel.jsx'
 import { hasApiKey } from './services/claudeApi.js'
 import { loadRoom, createRoom, diagnoseSupabase, incrementParticipantCount } from './utils/roomUtils.js'
-import { insertMessages } from './utils/messageUtils.js'
+import { insertMessage, insertMessages } from './utils/messageUtils.js'
 import { hasUsername, setUsername, getUsername } from './utils/username.js'
 import { markRoomVisited, markAllSeen } from './utils/inboxUtils.js'
 import { useAuth } from './contexts/AuthContext.jsx'
 import { gooseHonk1 } from './services/gooseAgent.js'
-import { initStrollState, fetchOrCreateMemory, seedMemoryFromParent } from './services/gardenerMemory.js'
-import { supabase } from './lib/supabase.js'
+import {
+  initStrollState,
+  fetchOrCreateMemory,
+  seedMemoryFromParent,
+  runStrollGardener,
+  incrementStrollTurn,
+  updateHandoffState,
+  buildStroll2DispositionLayer,
+} from './services/gardenerMemory.js'
+import { getStroll2Response } from './services/claudeApi.js'
+import { loadAllCharacters } from './utils/customCharacters.js'
+import { supabase, isSupabaseConfigured } from './lib/supabase.js'
 
 export default function App() {
   const { code: urlCode } = useParams()
@@ -273,6 +283,277 @@ export default function App() {
   }
 
   /**
+   * Called by WeaverEntryScreen when user submits a question from the entry input bar.
+   * Creates a 10-turn gardener_only stroll room, inserts the user's message and first
+   * Gardener response, then navigates into the stroll dialogue.
+   *
+   * @param {string} text — the user's opening question/curiosity
+   */
+  const handleEntrySubmit = async (text) => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+
+    const STROLL_TURNS = 10
+    const strollMode   = { id: 'stroll', name: 'Stroll', icon: '🌿', modeContext: '' }
+
+    // Create the room
+    const room = await createRoom(
+      strollMode,
+      [],
+      displayName,
+      isAuthenticated ? userId : null,
+      'private',
+      null,
+    )
+
+    // Set room_mode + stroll_type
+    if (room.id && supabase) {
+      try {
+        await supabase.from('rooms').update({
+          room_mode:         'stroll',
+          stroll_type:       'gardener_only',
+          stroll_turn_count: STROLL_TURNS,
+        }).eq('id', room.id)
+      } catch {}
+    }
+
+    // Goose Honk 1
+    await gooseHonk1(room.id, STROLL_TURNS)
+
+    // Initialize stroll_state with opening_context
+    await initStrollState(room.id, STROLL_TURNS, null, 'gardener_only', trimmed, null)
+
+    // Initialize gardener_memory with stroll_mode + handoff fields + opening_context
+    await fetchOrCreateMemory(room.id)
+    if (supabase && room.id) {
+      try {
+        await supabase.from('gardener_memory').upsert(
+          {
+            room_id:           room.id,
+            stroll_mode:       true,
+            handoff_mentions:  0,
+            handoff_character: null,
+            handoff_status:    'none',
+            opening_context:   trimmed,
+            updated_at:        new Date().toISOString(),
+          },
+          { onConflict: 'room_id' }
+        )
+      } catch {}
+    }
+
+    // Insert user's opening message
+    const senderName = isAuthenticated
+      ? (authUsername || getUsername() || 'User')
+      : (getUsername() || 'Guest')
+
+    const userMsgPayload = {
+      type:       'user',
+      content:    trimmed,
+      senderName,
+      userId:     userId || null,
+    }
+
+    if (isSupabaseConfigured && room.id) {
+      await insertMessage(userMsgPayload, room.id)
+    }
+
+    // Build a local stroll state for the first Gardener call
+    const initialStrollState = {
+      room_id:          room.id,
+      turn_count_total: STROLL_TURNS,
+      turn_count_chosen: STROLL_TURNS,
+      turns_elapsed:    0,
+      turns_remaining:  STROLL_TURNS,
+      current_season:   'winter_1',
+      season_cycle:     1,
+      opening_context:  trimmed,
+    }
+
+    const initialMemory = {
+      stroll_mode:       true,
+      opening_context:   trimmed,
+      handoff_mentions:  0,
+      handoff_status:    'none',
+      handoff_character: null,
+      ladybug_instances: [],
+    }
+
+    // Get first Gardener response
+    try {
+      const { text: gardenerResponse } = await runStrollGardener(
+        trimmed,
+        initialMemory,
+        initialStrollState,
+        [],
+        room.id,
+      )
+
+      const strollMsgPayload = {
+        type:             'character',
+        content:          gardenerResponse,
+        characterId:      'gardener',
+        characterName:    'Gardener',
+        characterColor:   '#6b7c47',
+        characterInitial: 'G',
+      }
+
+      if (isSupabaseConfigured && room.id) {
+        await insertMessage(strollMsgPayload, room.id)
+      }
+
+      // Increment stroll turn after Gardener responds
+      await incrementStrollTurn(room.id, initialStrollState)
+    } catch (err) {
+      console.error('[Entry] Gardener init error:', err)
+      // Still navigate — user can see the empty room and type
+    }
+
+    // Navigate into stroll
+    const strollRoom = {
+      ...room,
+      mode:             strollMode,
+      roomMode:         'stroll',
+      strollType:       'gardener_only',
+      stroll_turn_count: STROLL_TURNS,
+    }
+    setCurrentRoom(strollRoom)
+    markRoomVisited(room.code)
+    navigate(`/room/${room.code}`, { replace: true })
+    setScreen('chat')
+  }
+
+  /**
+   * Called by ChatInterface when the user accepts a character handoff from the Gardener.
+   * Creates Stroll 2 room (character_stroll), seeds it from Stroll 1 memory,
+   * gets the character's first response, and navigates seamlessly into Stroll 2.
+   *
+   * @param {string} characterName — the name the Gardener suggested
+   */
+  const handleHandoffAccepted = async (characterName) => {
+    if (!currentRoom?.id) return
+
+    const STROLL_2_TURNS = 10
+    const strollMode     = { id: 'stroll', name: 'Stroll', icon: '🌿', modeContext: '' }
+
+    // Look up the character
+    let character = null
+    try {
+      const allChars = await loadAllCharacters()
+      character = allChars.find(c =>
+        c.name.toLowerCase() === characterName.toLowerCase()
+      ) || null
+    } catch {}
+
+    if (!character) {
+      // Auto-create a minimal character object if not found
+      character = {
+        id:          characterName.toLowerCase().replace(/\s+/g, '_'),
+        name:        characterName,
+        title:       'Thinker',
+        personality: `You are ${characterName}. Speak in your own voice.`,
+        color:       '#5a7a8a',
+      }
+    }
+
+    // Fetch Stroll 1 gardener_memory for conversation_spine + opening_context
+    let conversationSpine = ''
+    let openingContext    = ''
+    if (supabase && currentRoom.id) {
+      try {
+        const { data: mem } = await supabase
+          .from('gardener_memory')
+          .select('conversation_spine, opening_context')
+          .eq('room_id', currentRoom.id)
+          .maybeSingle()
+        if (mem) {
+          conversationSpine = mem.conversation_spine || ''
+          openingContext    = mem.opening_context    || ''
+        }
+      } catch {}
+    }
+
+    const dispositionLayer = buildStroll2DispositionLayer(
+      character.name,
+      openingContext,
+      conversationSpine,
+    )
+
+    // Create Stroll 2 room
+    const stroll2Room = await createRoom(
+      strollMode,
+      [character],
+      displayName,
+      isAuthenticated ? userId : null,
+      'private',
+      { parentRoomId: currentRoom.id, branchedAtSequence: null, branchDepth: 1, foundingContext: null },
+    )
+
+    if (stroll2Room.id && supabase) {
+      try {
+        await supabase.from('rooms').update({
+          room_mode:   'stroll',
+          stroll_type: 'character_stroll',
+        }).eq('id', stroll2Room.id)
+      } catch {}
+    }
+
+    // Initialize stroll_state for Stroll 2
+    await initStrollState(
+      stroll2Room.id,
+      STROLL_2_TURNS,
+      null,
+      'character_stroll',
+      openingContext,
+      currentRoom.id, // parent_stroll_id
+    )
+
+    // Seed gardener_memory from Stroll 1
+    if (stroll2Room.id && currentRoom.id) {
+      await seedMemoryFromParent(stroll2Room.id, currentRoom.id).catch(() => {})
+    }
+
+    // Get first character response using disposition layer
+    try {
+      const firstResponse = await getStroll2Response(
+        character,
+        [],
+        openingContext || 'I wanted to think about something.',
+        dispositionLayer,
+        null,
+      )
+
+      const charMsgPayload = {
+        type:             'character',
+        content:          firstResponse,
+        characterId:      character.id,
+        characterName:    character.name,
+        characterColor:   character.color || '#5a7a8a',
+        characterInitial: (character.name || '?')[0].toUpperCase(),
+      }
+
+      if (isSupabaseConfigured && stroll2Room.id) {
+        await insertMessage(charMsgPayload, stroll2Room.id)
+      }
+    } catch (err) {
+      console.error('[Stroll2] First character response error:', err)
+    }
+
+    // Navigate to Stroll 2 — same chat screen, different room
+    const stroll2 = {
+      ...stroll2Room,
+      mode:       strollMode,
+      roomMode:   'stroll',
+      strollType: 'character_stroll',
+      characters: [character],
+    }
+    setCurrentRoom(stroll2)
+    markRoomVisited(stroll2Room.code)
+    navigate(`/room/${stroll2Room.code}`, { replace: true })
+    // screen stays 'chat' — no navigation jump
+  }
+
+  /**
    * Called by StrollConfig when user confirms turn count.
    * Creates a stroll room and initializes all stroll infrastructure.
    */
@@ -436,17 +717,11 @@ export default function App() {
 
       {screen === 'weaver' && (
         <WeaverEntryScreen
-          onOpenRoom={handleOpenRoom}
-          onRoomCreated={(room) => {
-            setCurrentRoom(room)
-            markRoomVisited(room.code)
-            navigate(`/room/${room.code}`, { replace: true })
-            setScreen('chat')
-          }}
+          onEntrySubmit={handleEntrySubmit}
+          onOpenLibrary={handleOpenLibrary}
           onSignIn={() => handleSignIn()}
           onStartRoom={handleStartRoom}
-          onTriggerStroll={handleTriggerStroll}
-          onOpenLibrary={handleOpenLibrary}
+          onOpenRoom={handleOpenRoom}
         />
       )}
 
@@ -517,6 +792,7 @@ export default function App() {
           onTriggerStroll={handleTriggerStroll}
           onStrollClose={handleStrollClose}
           onOpenLibrary={handleOpenLibrary}
+          onHandoffAccepted={handleHandoffAccepted}
         />
       )}
     </div>

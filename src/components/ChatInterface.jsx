@@ -2,18 +2,18 @@ import React, { useState, useRef, useEffect, useCallback } from 'react'
 import MessageBubble from './MessageBubble.jsx'
 import TypingIndicator from './TypingIndicator.jsx'
 import UsernameModal from './UsernameModal.jsx'
-import { getCharacterResponse, generateInviteMessage } from '../services/claudeApi.js'
+import { getCharacterResponse, getStroll2Response, generateInviteMessage } from '../services/claudeApi.js'
 import { routeMessage, formatRoutingNotice } from '../services/weaverRouter.js'
 import {
   fetchOrCreateMemory, runGardenerRouter, updateGardenerMemory,
   writeSeasonalAssessment, fetchStrollState, incrementStrollTurn,
-  runStrollGardener, setStrollDormant,
+  runStrollGardener, setStrollDormant, updateHandoffState, buildStroll2DispositionLayer,
 } from '../services/gardenerMemory.js'
 import { gooseHonk2, checkGovernanceCollapse } from '../services/gooseAgent.js'
 import { runWeatherAssessment, getLatestWeather } from '../services/weatherAgent.js'
 import { runBugsAssessment } from '../services/bugsAgent.js'
 import { runHuxAssessment } from '../services/huxAgent.js'
-import { isSupabaseConfigured } from '../lib/supabase.js'
+import { isSupabaseConfigured, supabase } from '../lib/supabase.js'
 import { insertMessage, fetchMessages, fetchMessagesAfter } from '../utils/messageUtils.js'
 import { saveRoom, ensureParticipant, getMyRole, listParticipants, setParticipantRole, fetchRoomAncestors } from '../utils/roomUtils.js'
 import { getUsername, setUsername } from '../utils/username.js'
@@ -23,7 +23,19 @@ import { useDevMode } from '../contexts/DevModeContext.jsx'
 
 const POLL_INTERVAL_MS = 3000
 
-export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranchConfig, onTriggerStroll, onStrollClose, onOpenLibrary }) {
+// ── Handoff affirmative detection ─────────────────────────────────────────────
+function detectAffirmative(text) {
+  const lower = text.toLowerCase().trim()
+  const affirms = [
+    'yes', 'yeah', 'yep', 'yup', 'sure', 'ok', 'okay', 'alright', 'alright,',
+    'let\'s do it', 'let\'s go', 'sounds good', 'please', 'definitely',
+    'of course', 'absolutely', 'why not', 'yes please', 'go ahead', 'do it',
+    'i\'d like that', 'that sounds', 'good idea', 'great', 'perfect',
+  ]
+  return affirms.some(a => lower === a || lower.startsWith(a + ' ') || lower.startsWith(a + ',') || lower.startsWith(a + '.'))
+}
+
+export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranchConfig, onTriggerStroll, onStrollClose, onOpenLibrary, onHandoffAccepted }) {
   const { isAuthenticated, username: authUsername, userId } = useAuth()
   const {
     routerEnabled, memoryEnabled, gardenerEnabled,
@@ -36,7 +48,14 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
   // Stroll state — loaded once on mount for stroll rooms
   const [strollState, setStrollState] = useState(null)
-  const isStrollRoom = room?.mode?.id === 'stroll' || room?.roomMode === 'stroll'
+  const isStrollRoom   = room?.mode?.id === 'stroll' || room?.roomMode === 'stroll'
+  const isStroll2      = isStrollRoom && (room?.strollType === 'character_stroll')
+
+  // Handoff tracking for Stroll 1
+  const [strollHandoff, setStrollHandoff] = useState({ status: 'none', characterName: null })
+
+  // Disposition layer for Stroll 2 character responses
+  const [stroll2Disposition, setStroll2Disposition] = useState('')
 
   const [messages,        setMessages]        = useState([])
   const [input,           setInput]           = useState('')
@@ -96,6 +115,30 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     // Load stroll state if applicable
     if (isStrollRoom) {
       fetchStrollState(room.id).then(s => setStrollState(s))
+    }
+
+    // Load Stroll 2 disposition layer if this is a character_stroll
+    if (isStroll2 && room.characters?.length > 0) {
+      const char = room.characters[0]
+      ;(async () => {
+        let conversationSpine = ''
+        let openingContext    = ''
+        if (isSupabaseConfigured && supabase && room.parentRoomId) {
+          try {
+            const { data: mem } = await supabase
+              .from('gardener_memory')
+              .select('conversation_spine, opening_context')
+              .eq('room_id', room.parentRoomId)
+              .maybeSingle()
+            if (mem) {
+              conversationSpine = mem.conversation_spine || ''
+              openingContext    = mem.opening_context    || ''
+            }
+          } catch {}
+        }
+        const layer = buildStroll2DispositionLayer(char.name, openingContext, conversationSpine)
+        setStroll2Disposition(layer)
+      })()
     }
 
     if (isAuthenticated && userId) {
@@ -309,12 +352,139 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
     const precedingResponses = []
 
-    // ── Stroll mode — Gardener is the only voice ──────────────────────────────
+    // ── Stroll 2 — character is the voice (disposition layer active) ──────────
+    if (isStroll2) {
+      const stroll2Char = room.characters?.[0]
+      if (!stroll2Char) {
+        // Fallback: no character configured — treat as closed
+        setTypingCharacter(null)
+        setIsSending(false)
+        sendLockRef.current = false
+        return
+      }
+
+      setTypingCharacter({
+        name:    stroll2Char.name,
+        color:   stroll2Char.color || '#5a7a8a',
+        initial: (stroll2Char.name || '?')[0].toUpperCase(),
+      })
+
+      try {
+        const responseText = await getStroll2Response(
+          stroll2Char,
+          conversationSnapshot,
+          text,
+          stroll2Disposition,
+          controller.signal,
+        )
+
+        if (!cancelledRef.current) {
+          const charMsgPayload = {
+            type:             'character',
+            content:          responseText,
+            characterId:      stroll2Char.id,
+            characterName:    stroll2Char.name,
+            characterColor:   stroll2Char.color || '#5a7a8a',
+            characterInitial: (stroll2Char.name || '?')[0].toUpperCase(),
+          }
+          let savedMsg
+          if (isSupabaseConfigured && room?.id) {
+            savedMsg = await insertMessage(charMsgPayload, room.id)
+          } else {
+            savedMsg = { ...charMsgPayload, id: `s2_${Date.now()}`, timestamp: new Date().toISOString() }
+          }
+          setMessages(prev => [...prev, savedMsg])
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.error('[Stroll2] Character error:', err)
+          const errMsg = {
+            type: 'character', content: '[The walk is quiet for a moment.]',
+            characterId: stroll2Char.id, characterName: stroll2Char.name,
+            characterColor: stroll2Char.color || '#5a7a8a',
+            characterInitial: (stroll2Char.name || '?')[0].toUpperCase(), isError: true,
+          }
+          setMessages(prev => [...prev, { ...errMsg, id: `s2_err_${Date.now()}`, timestamp: new Date().toISOString() }])
+        }
+      }
+
+      setTypingCharacter(null)
+      setIsSending(false)
+      setRoutingNotice(null)
+      cancelledRef.current = false
+      sendLockRef.current = false
+      return
+    }
+
+    // ── Stroll 1 — Gardener is the only voice ─────────────────────────────────
     if (isStrollRoom) {
+      // Handoff affirmative detection: if Gardener has suggested a character,
+      // check whether this message is an acceptance
+      if (strollHandoff.status === 'suggested' && strollHandoff.characterName) {
+        if (detectAffirmative(text)) {
+          // Accept: update DB, then let Gardener make farewell comment with updated memory
+          await updateHandoffState(room.id, 'accepted', strollHandoff.characterName)
+          // Update local state so next check knows we are transitioning
+          setStrollHandoff(h => ({ ...h, status: 'accepting' }))
+
+          // Get updated memory with accepted status for farewell
+          const updatedMemory = memory
+            ? { ...memory, handoff_status: 'accepted', handoff_character: strollHandoff.characterName }
+            : { handoff_status: 'accepted', handoff_character: strollHandoff.characterName }
+
+          setTypingCharacter({ name: 'Gardener', color: '#6b7c47', initial: 'G' })
+          try {
+            const { text: farewellText } = await runStrollGardener(
+              text, updatedMemory, currentStrollState, conversationSnapshot, room.id
+            )
+            if (!cancelledRef.current) {
+              const farewellPayload = {
+                type: 'character', content: farewellText,
+                characterId: 'gardener', characterName: 'Gardener',
+                characterColor: '#6b7c47', characterInitial: 'G',
+              }
+              let savedFarewell
+              if (isSupabaseConfigured && room?.id) {
+                savedFarewell = await insertMessage(farewellPayload, room.id)
+              } else {
+                savedFarewell = { ...farewellPayload, id: `stroll_fare_${Date.now()}`, timestamp: new Date().toISOString() }
+              }
+              setMessages(prev => [...prev, savedFarewell])
+            }
+          } catch (err) {
+            console.error('[Stroll] Farewell error:', err)
+          }
+
+          setTypingCharacter(null)
+          setIsSending(false)
+          setRoutingNotice(null)
+          cancelledRef.current = false
+          sendLockRef.current = false
+
+          // Trigger Stroll 2 transition
+          if (onHandoffAccepted) onHandoffAccepted(strollHandoff.characterName)
+          return
+        } else {
+          // Decline: close the handoff window, continue normally
+          updateHandoffState(room.id, 'declined', null).catch(() => {})
+          setStrollHandoff({ status: 'declined', characterName: null })
+        }
+      }
+
       setTypingCharacter({ name: 'Gardener', color: '#6b7c47', initial: 'G' })
       try {
-        const responseText = await runStrollGardener(text, memory, currentStrollState, conversationSnapshot, room.id)
+        const { text: responseText, handoffMeta } = await runStrollGardener(
+          text, memory, currentStrollState, conversationSnapshot, room.id
+        )
+
         if (!cancelledRef.current) {
+          // If Gardener suggested a character, update handoff state
+          if (handoffMeta) {
+            updateHandoffState(room.id, handoffMeta.type, handoffMeta.characterName).catch(() => {})
+            setStrollHandoff({ status: 'suggested', characterName: handoffMeta.characterName })
+            console.log('[Stroll] Handoff suggested:', handoffMeta.characterName)
+          }
+
           const strollMsgPayload = {
             type:             'character',
             content:          responseText,
@@ -818,6 +988,14 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
       {/* ── Messages ── */}
       <div className="chat-messages" ref={messagesContainerRef}>
+
+        {/* Stroll 2 entry divider — thin HR marks where Stroll 1 ended */}
+        {isStroll2 && !isLoading && (
+          <div className="stroll-2-divider">
+            <hr className="stroll-2-hr" />
+          </div>
+        )}
+
         {isLoading ? (
           <div className="chat-loading">
             <div className="loading-spinner" style={{ width: 28, height: 28 }} />

@@ -1,53 +1,21 @@
 /**
- * WeaverEntryScreen.jsx  — now the Kepos entry screen
+ * WeaverEntryScreen.jsx  — Kepos primary entry screen
  * ─────────────────────────────────────────────────────────────
- * Three-layer entry screen:
+ * Three elements:
+ *   1. Canvas 2D rhizome visualization (full-screen background)
+ *   2. Single input bar ("what are you curious about?")
+ *   3. Hamburger menu (top-right) → full-height left drawer
  *
- *   Layer 1 — Canvas 2D rhizome visualization
- *     Irregular branching root structure radiating from centre.
- *     Olive green / warm brown tones on white/off-white bg.
- *     Continuous organic growth: tips extend, breathe, fade.
- *     Motion is always present but never distracting.
+ * Hamburger drawer:
+ *   My Strolls · My Conversations · Library · Characters · Settings · Account
  *
- *   Layer 2 — Gardener conversation interface
- *     Minimal input bar. Short chat thread above it.
- *     Gardener system prompt drives room creation in ≤3 exchanges.
- *     Detects ROOM_CREATE:{...} signal, creates the room.
- *
- *   Layer 3 — Persistent navigation
- *     My Chats · Create Room · Browse All
+ * On submit: calls onEntrySubmit(text) — App.jsx creates stroll room
+ * and navigates into it. No room creation logic here.
  * ─────────────────────────────────────────────────────────────
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { callDirectAPI } from '../services/claudeApi.js'
-import { loadAllCharacters, autoCreateGardenerCharacter } from '../utils/customCharacters.js'
-import { createRoom } from '../utils/roomUtils.js'
-import { getVisitedRoomCodes } from '../utils/inboxUtils.js'
-import { modes } from '../data/modes.js'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext.jsx'
-import InboxScreen from './InboxScreen.jsx'
-
-// ── Gardener system prompt ─────────────────────────────────────────────────────
-
-const GARDENER_SYSTEM_PROMPT = `You are the Gardener, the guide of Kepos — a platform where users have conversations with multiple AI characters simultaneously. Your job is to help users shape a room in 1–2 warm exchanges.
-
-You are curious and brief. You sound like a knowledgeable friend, not a form.
-
-When a user describes what they want:
-1. Identify 2–4 characters (historical figures, philosophers, scientists, writers, thinkers) that could fit their interest. You are not limited to any predefined list — suggest whoever would make the best conversation.
-2. Suggest them simply: a question or an opening. Example: "Darwin and Marx could be a fascinating pairing here — want to go with them, or is there someone else you'd like in the room?"
-3. Always end your reply with an open question that invites the user to confirm or redirect.
-4. Once the user confirms (or gives a clear go-ahead), emit exactly this line and nothing else:
-ROOM_CREATE:{"characters":["Name1","Name2"],"topic":"brief topic"}
-
-The app detects ROOM_CREATE, creates the room automatically, and navigates in.
-
-Rules:
-- Never ask about mode or visibility — these are handled automatically.
-- Never emit ROOM_CREATE without at least one user confirmation exchange.
-- Keep responses under 50 words (excluding ROOM_CREATE).
-- When emitting ROOM_CREATE, output ONLY that line — nothing before or after.`
 
 // ── Canvas 2D Rhizome ──────────────────────────────────────────────────────────
 
@@ -265,36 +233,24 @@ function initRhizome(canvas) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn, onStartRoom, onTriggerStroll, onOpenLibrary }) {
-  const { isAuthenticated, userId, username, authLoading } = useAuth()
+export default function WeaverEntryScreen({
+  onEntrySubmit,
+  onOpenLibrary,
+  onSignIn,
+  onStartRoom,
+  onOpenRoom,
+}) {
+  const { isAuthenticated, username } = useAuth()
 
-  const [messages,       setMessages]       = useState([])
-  const [inputText,      setInputText]      = useState('')
-  const [gardenerLoading, setGardenerLoading] = useState(false)
-  const [gardenerError,  setGardenerError]  = useState('')
-  const [isCreating,     setIsCreating]     = useState(false)
+  const [inputText,    setInputText]    = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [drawerOpen,   setDrawerOpen]   = useState(false)
 
-  const [showInbox, setShowInbox] = useState(false)
-  const [inboxTab,  setInboxTab]  = useState('my')
+  const canvasRef  = useRef(null)
+  const inputRef   = useRef(null)
+  const inputBarRef = useRef(null)
 
-  const canvasRef    = useRef(null)
-  const inputRef     = useRef(null)
-  const inputBarRef  = useRef(null)
-  const chatEndRef   = useRef(null)
-  const abortRef     = useRef(null)
-  const allCharsRef  = useRef([])
-
-  // Load characters
-  useEffect(() => {
-    loadAllCharacters().then(chars => { allCharsRef.current = chars }).catch(() => {})
-  }, [])
-
-  // Scroll chat to bottom
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  // Canvas 2D rhizome
+  // Canvas rhizome
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -302,276 +258,323 @@ export default function WeaverEntryScreen({ onOpenRoom, onRoomCreated, onSignIn,
     return cleanup
   }, [])
 
-  // ── visualViewport: keep input bar above keyboard on iOS ─────────────────
+  // visualViewport: keep input bar above keyboard on iOS
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
-
-    const handleViewportResize = () => {
+    const handle = () => {
       const bar = inputBarRef.current
       if (!bar) return
-      // Bottom of visual viewport relative to layout viewport
       const keyboardHeight = window.innerHeight - (vv.height + vv.offsetTop)
-      const bottomOffset   = Math.max(0, keyboardHeight)
-      // Nav is ~64px; add safe area when no keyboard
-      const navHeight = 64
-      bar.style.bottom = bottomOffset > 10
-        ? `${bottomOffset + 8}px`
-        : `calc(${navHeight}px + max(0px, env(safe-area-inset-bottom)))`
+      bar.style.bottom = keyboardHeight > 10
+        ? `${keyboardHeight + 8}px`
+        : 'calc(24px + max(0px, env(safe-area-inset-bottom)))'
     }
-
-    vv.addEventListener('resize', handleViewportResize)
-    vv.addEventListener('scroll', handleViewportResize)
+    vv.addEventListener('resize', handle)
+    vv.addEventListener('scroll', handle)
     return () => {
-      vv.removeEventListener('resize', handleViewportResize)
-      vv.removeEventListener('scroll', handleViewportResize)
+      vv.removeEventListener('resize', handle)
+      vv.removeEventListener('scroll', handle)
     }
   }, [])
 
-  // ── Parse ROOM_CREATE signal ─────────────────────────────────────────────
-  async function handleRoomCreate(signal) {
+  // Close drawer on outside click
+  useEffect(() => {
+    if (!drawerOpen) return
+    const handler = (e) => {
+      if (!e.target.closest('.kepos-drawer') && !e.target.closest('.kepos-hamburger')) {
+        setDrawerOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    document.addEventListener('touchstart', handler, { passive: true })
+    return () => {
+      document.removeEventListener('mousedown', handler)
+      document.removeEventListener('touchstart', handler)
+    }
+  }, [drawerOpen])
+
+  const handleSubmit = async () => {
+    const text = inputText.trim()
+    if (!text || isSubmitting) return
+    setIsSubmitting(true)
+    setInputText('')
+    if (inputRef.current) inputRef.current.style.height = 'auto'
     try {
-      const json  = JSON.parse(signal.slice('ROOM_CREATE:'.length))
-      const names = json.characters || []
-
-      // Always use Discuss mode and open (public) visibility from the Gardener
-      const modeId = 'discuss'
-      const vis    = 'open'
-
-      if (names.length === 0) {
-        setGardenerError('No characters were specified — try again.')
-        return
-      }
-
-      setIsCreating(true)
-
-      // Resolve each name: find in cache, or auto-create via Claude + Supabase
-      const allChars = allCharsRef.current
-      const matched  = await Promise.all(names.map(async (name) => {
-        const lower = name.toLowerCase()
-        // Check the already-loaded character library first (fast path)
-        const found = allChars.find(c =>
-          c.name.toLowerCase() === lower ||
-          c.name.toLowerCase().endsWith(lower.split(' ').pop())
-        )
-        if (found) return found
-
-        // Not in library — auto-generate and persist
-        return autoCreateGardenerCharacter(name)
-      }))
-
-      const validChars = matched.filter(Boolean)
-      if (validChars.length === 0) {
-        setGardenerError('Couldn\'t resolve those characters — try again.')
-        setIsCreating(false)
-        return
-      }
-
-      const modeObj     = modes.find(m => m.id === modeId) || modes[0]
-      const displayName = isAuthenticated
-        ? (username || localStorage.getItem('kepos_username') || 'User')
-        : (localStorage.getItem('kepos_username') || localStorage.getItem('groupchat_username') || 'Guest')
-
-      const room = await createRoom(modeObj, validChars, displayName, isAuthenticated ? userId : null, vis, null)
-      await new Promise(res => setTimeout(res, 400))
-      setIsCreating(false)
-      onRoomCreated(room)
-    } catch (err) {
-      console.error('[Kepos] room create error', err)
-      setGardenerError('Something went wrong creating the room. Please try again.')
-      setIsCreating(false)
+      await onEntrySubmit(text)
+    } finally {
+      setIsSubmitting(false)
     }
   }
-
-  // ── Send a message to the Gardener ──────────────────────────────────────
-  const handleSend = useCallback(async () => {
-    const text = inputText.trim()
-    if (!text || gardenerLoading || isCreating) return
-
-    setGardenerError('')
-    const userMsg   = { role: 'user', content: text }
-    const newMsgs   = [...messages, userMsg]
-    setMessages(newMsgs)
-    setInputText('')
-    setGardenerLoading(true)
-
-    abortRef.current?.abort()
-    abortRef.current = new AbortController()
-
-    try {
-      const apiMsgs = newMsgs.map(m => ({ role: m.role, content: m.content }))
-      const response = await callDirectAPI(GARDENER_SYSTEM_PROMPT, apiMsgs, 400, abortRef.current.signal)
-
-      if (response.trim().startsWith('ROOM_CREATE:')) {
-        setMessages(prev => [...prev, { role: 'assistant', content: response.trim() }])
-        setGardenerLoading(false)
-        await handleRoomCreate(response.trim())
-        return
-      }
-
-      setMessages(prev => [...prev, { role: 'assistant', content: response }])
-    } catch (err) {
-      if (err.name !== 'AbortError') {
-        setGardenerError('The Gardener couldn\'t respond — check your API key and try again.')
-      }
-    } finally {
-      setGardenerLoading(false)
-    }
-  }, [inputText, messages, gardenerLoading, isCreating, isAuthenticated, userId, username]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
-  }
-
-  const handleInputChange = (e) => {
-    setInputText(e.target.value)
-    // Auto-expand textarea (max ~5 lines ≈ 120px)
-    const ta = inputRef.current
-    if (ta) {
-      ta.style.height = 'auto'
-      ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSubmit()
     }
   }
 
-  const openMyChats = () => { setInboxTab('my'); setShowInbox(true) }
-  const closeInbox  = () => setShowInbox(false)
+  const handleTextareaChange = (e) => {
+    setInputText(e.target.value)
+    // Auto-resize
+    const el = e.target
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+  }
 
-  const hasReturningRooms = getVisitedRoomCodes().length > 0
+  const drawerItems = [
+    {
+      label: 'My Strolls',
+      icon:  '🌿',
+      action: () => { setDrawerOpen(false); onOpenLibrary?.() },
+    },
+    {
+      label: 'My Conversations',
+      icon:  '💬',
+      action: () => { setDrawerOpen(false); onOpenLibrary?.() },
+    },
+    {
+      label: 'Library',
+      icon:  '📚',
+      action: () => { setDrawerOpen(false); onOpenLibrary?.() },
+    },
+    {
+      label: 'Characters',
+      icon:  '◈',
+      action: () => { setDrawerOpen(false); onStartRoom?.() },
+    },
+    {
+      label: 'Settings',
+      icon:  '⚙',
+      action: () => { setDrawerOpen(false) }, // placeholder
+    },
+    {
+      label: isAuthenticated ? (username || 'Account') : 'Sign In',
+      icon:  '○',
+      action: () => { setDrawerOpen(false); onSignIn?.() },
+    },
+  ]
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="weaver-entry">
+    <div style={{ position: 'fixed', inset: 0, background: '#f5f2ec', overflow: 'hidden' }}>
 
-      {/* ── Layer 1: Canvas 2D rhizome ── */}
-      <canvas ref={canvasRef} className="weaver-canvas" />
+      {/* Canvas layer */}
+      <canvas
+        ref={canvasRef}
+        style={{ position: 'absolute', inset: 0, display: 'block' }}
+      />
 
-      {/* ── Wordmark ── */}
-      <div className="weaver-wordmark">kepos</div>
-
-      {/* ── Creating overlay ── */}
-      {isCreating && (
-        <div className="weaver-creating">
-          <div className="weaver-creating-ring" />
-          <div className="weaver-creating-text">Shaping your room…</div>
-        </div>
-      )}
-
-      {/* ── Layer 2: Gardener conversation thread ── */}
-      <div className="weaver-thread-area">
-
-        {/* Message thread */}
-        {messages.length > 0 && (
-          <div className="weaver-thread">
-            {messages.map((m, i) => {
-              if (m.role === 'assistant' && m.content.startsWith('ROOM_CREATE:')) return null
-              return (
-                <div key={i} className={`weaver-msg weaver-msg-${m.role}`}>
-                  {m.content}
-                </div>
-              )
-            })}
-
-            {gardenerLoading && (
-              <div className="weaver-msg weaver-msg-assistant weaver-typing">
-                <span /><span /><span />
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
-        )}
-
-        {gardenerError && (
-          <div className="weaver-error">{gardenerError}</div>
-        )}
+      {/* Wordmark */}
+      <div style={{
+        position:      'absolute',
+        top:           '28px',
+        left:          '50%',
+        transform:     'translateX(-50%)',
+        fontFamily:    'Georgia, serif',
+        fontSize:      '13px',
+        letterSpacing: '0.18em',
+        textTransform: 'uppercase',
+        color:         '#4a5830',
+        opacity:       0.7,
+        userSelect:    'none',
+        pointerEvents: 'none',
+      }}>
+        kepos
       </div>
 
-      {/* ── Stroll entry point ── */}
-      <div className="weaver-stroll-cta">
-        <button
-          className="weaver-stroll-btn"
-          onClick={() => onTriggerStroll && onTriggerStroll()}
-          title="Begin a stroll — a metered conversation with the Gardener"
-        >
-          Begin a stroll
-        </button>
-      </div>
+      {/* Hamburger button */}
+      <button
+        className="kepos-hamburger"
+        onClick={() => setDrawerOpen(o => !o)}
+        aria-label="Menu"
+        style={{
+          position:    'fixed',
+          top:         '20px',
+          right:       '20px',
+          zIndex:      200,
+          background:  'transparent',
+          border:      'none',
+          cursor:      'pointer',
+          padding:     '8px',
+          display:     'flex',
+          flexDirection: 'column',
+          gap:         '5px',
+          opacity:     drawerOpen ? 0 : 0.6,
+          transition:  'opacity 0.2s',
+        }}
+      >
+        <span style={{ display: 'block', width: '22px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
+        <span style={{ display: 'block', width: '22px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
+        <span style={{ display: 'block', width: '14px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
+      </button>
 
-      {/* ── Input bar ── */}
-      <div className="weaver-input-bar" ref={inputBarRef}>
-        <textarea
-          ref={inputRef}
-          className="weaver-input"
-          value={inputText}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          placeholder="What are you curious about?"
-          rows={1}
-          disabled={gardenerLoading || isCreating}
+      {/* Left drawer overlay */}
+      {drawerOpen && (
+        <div
+          style={{
+            position:   'fixed',
+            inset:      0,
+            background: 'rgba(0,0,0,0.18)',
+            zIndex:     300,
+          }}
         />
-        <button
-          className="weaver-send-btn"
-          onClick={handleSend}
-          disabled={!inputText.trim() || gardenerLoading || isCreating}
-          aria-label="Send"
-        >
-          {gardenerLoading ? <span className="weaver-send-spinner" /> : '↑'}
-        </button>
-      </div>
-
-      {/* ── Layer 3: Persistent navigation (icon-only) ── */}
-      <div className="weaver-nav">
-        <button
-          className={`weaver-nav-btn ${hasReturningRooms ? 'weaver-nav-prominent' : ''}`}
-          onClick={openMyChats}
-          aria-label="My Chats"
-          title="My Chats"
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-          </svg>
-        </button>
-
-        <button
-          className="weaver-nav-btn weaver-nav-create"
-          onClick={onStartRoom}
-          aria-label="Create Room"
-          title="Create Room"
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-        </button>
-
-        <button
-          className="weaver-nav-btn"
-          onClick={() => onOpenLibrary && onOpenLibrary()}
-          aria-label="Library"
-          title="Library"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-          </svg>
-        </button>
-      </div>
-
-      {/* ── Inbox slide-up panel ── */}
-      {showInbox && (
-        <div className="graph-inbox-overlay">
-          <div className="graph-inbox-backdrop" onClick={closeInbox} />
-          <div className="graph-inbox-sheet">
-            <div className="graph-inbox-pull-handle" />
-            <InboxScreen
-              initialTab="my"
-              onStartRoom={closeInbox}
-              onOpenRoom={(code) => { closeInbox(); onOpenRoom(code) }}
-              onJoinRoom={(code) => { closeInbox(); onOpenRoom(code) }}
-              onSignIn={() => { closeInbox(); onSignIn() }}
-              onOpenLibrary={() => { closeInbox(); onOpenLibrary && onOpenLibrary() }}
-            />
-          </div>
-        </div>
       )}
 
+      {/* Left drawer panel */}
+      <div
+        className="kepos-drawer"
+        style={{
+          position:   'fixed',
+          top:        0,
+          left:       0,
+          bottom:     0,
+          width:      '260px',
+          background: '#1a1a18',
+          zIndex:     400,
+          transform:  drawerOpen ? 'translateX(0)' : 'translateX(-100%)',
+          transition: 'transform 0.28s cubic-bezier(0.22, 1, 0.36, 1)',
+          display:    'flex',
+          flexDirection: 'column',
+          paddingTop: 'max(28px, env(safe-area-inset-top))',
+          paddingBottom: 'max(28px, env(safe-area-inset-bottom))',
+        }}
+      >
+        {/* Drawer close / wordmark */}
+        <div style={{
+          display:        'flex',
+          alignItems:     'center',
+          justifyContent: 'space-between',
+          padding:        '0 20px 32px',
+        }}>
+          <span style={{
+            fontFamily:    'Georgia, serif',
+            fontSize:      '12px',
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            color:         '#6b7c47',
+            opacity:       0.8,
+          }}>kepos</span>
+          <button
+            onClick={() => setDrawerOpen(false)}
+            style={{
+              background:  'none',
+              border:      'none',
+              cursor:      'pointer',
+              color:       '#5a5a5a',
+              fontSize:    '18px',
+              lineHeight:  1,
+              padding:     '4px',
+            }}
+          >✕</button>
+        </div>
+
+        {/* Drawer items */}
+        <nav style={{ flex: 1, overflow: 'auto' }}>
+          {drawerItems.map((item) => (
+            <button
+              key={item.label}
+              onClick={item.action}
+              style={{
+                display:     'flex',
+                alignItems:  'center',
+                gap:         '14px',
+                width:       '100%',
+                padding:     '14px 24px',
+                background:  'none',
+                border:      'none',
+                cursor:      'pointer',
+                textAlign:   'left',
+                color:       '#b8b0a0',
+                fontFamily:  'Georgia, serif',
+                fontSize:    '15px',
+                transition:  'color 0.15s, background 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = '#e8e4dc'; e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = '#b8b0a0'; e.currentTarget.style.background = 'none' }}
+            >
+              <span style={{ fontSize: '14px', opacity: 0.7, minWidth: '20px' }}>{item.icon}</span>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* Input bar — fixed at bottom */}
+      <div
+        ref={inputBarRef}
+        style={{
+          position:      'fixed',
+          bottom:        'calc(24px + max(0px, env(safe-area-inset-bottom)))',
+          left:          '50%',
+          transform:     'translateX(-50%)',
+          width:         '100%',
+          maxWidth:      '520px',
+          padding:       '0 20px',
+          zIndex:        100,
+          boxSizing:     'border-box',
+        }}
+      >
+        <div style={{
+          display:      'flex',
+          alignItems:   'flex-end',
+          gap:          '10px',
+          background:   'rgba(26, 26, 24, 0.90)',
+          border:       '1px solid rgba(107, 124, 71, 0.25)',
+          borderRadius: '12px',
+          padding:      '10px 12px',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          boxShadow:    '0 2px 20px rgba(0,0,0,0.18)',
+        }}>
+          <textarea
+            ref={inputRef}
+            value={inputText}
+            onChange={handleTextareaChange}
+            onKeyDown={handleKeyDown}
+            placeholder="what are you curious about?"
+            disabled={isSubmitting}
+            rows={1}
+            style={{
+              flex:        1,
+              background:  'transparent',
+              border:      'none',
+              outline:     'none',
+              resize:      'none',
+              color:       '#e8e4dc',
+              fontFamily:  'Georgia, serif',
+              fontSize:    '15px',
+              lineHeight:  '1.5',
+              padding:     '2px 0',
+              minHeight:   '24px',
+              maxHeight:   '120px',
+              overflow:    'auto',
+              caretColor:  '#6b7c47',
+            }}
+          />
+          <button
+            onClick={handleSubmit}
+            disabled={!inputText.trim() || isSubmitting}
+            aria-label="Begin"
+            style={{
+              flexShrink:   0,
+              width:        '32px',
+              height:       '32px',
+              background:   inputText.trim() && !isSubmitting ? '#4a5a24' : 'rgba(255,255,255,0.06)',
+              border:       'none',
+              borderRadius: '8px',
+              cursor:       inputText.trim() && !isSubmitting ? 'pointer' : 'default',
+              display:      'flex',
+              alignItems:   'center',
+              justifyContent: 'center',
+              transition:   'background 0.2s',
+              color:        inputText.trim() && !isSubmitting ? '#e8e4dc' : '#5a5a5a',
+              fontSize:     '14px',
+            }}
+          >
+            {isSubmitting ? '·' : '↑'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

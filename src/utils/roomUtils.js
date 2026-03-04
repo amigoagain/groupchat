@@ -132,6 +132,7 @@ export async function createRoom(
       last_activity:         now,
       participant_count:     1,
       visibility,
+      genealogy_visible:     true, // default: genealogy visible; set false when room goes private after being public
       parent_room_id:        branchData?.parentRoomId        || null,
       branched_at_sequence:  branchData?.branchedAtSequence  || null,
       branch_depth:          branchData?.branchDepth         || 0,

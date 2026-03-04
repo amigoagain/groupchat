@@ -544,6 +544,39 @@ export async function callDirectAPI(systemPrompt, messages, maxTokens = 400, sig
 }
 
 /**
+ * Get a character response for Stroll 2 (character_stroll).
+ * Uses the Gardener's disposition layer invisibly in the character's system prompt.
+ * One-on-one walk — no group conversation language.
+ *
+ * @param {object}      character            — character object with .personality
+ * @param {object[]}    previousMessages     — existing messages in this stroll 2 room
+ * @param {string}      currentUserMessage
+ * @param {string}      dispositionLayer     — from buildStroll2DispositionLayer()
+ * @param {AbortSignal|null} signal
+ * @returns {string} response text
+ */
+export async function getStroll2Response(
+  character,
+  previousMessages,
+  currentUserMessage,
+  dispositionLayer = '',
+  signal           = null,
+) {
+  const systemPrompt =
+    `${character.personality}${dispositionLayer}\n\n` +
+    `You are in a one-on-one conversation. This is a walk, not a lecture. ` +
+    `Write in natural prose. No headers, no bullet points, no markdown formatting. ` +
+    `Respond as ${character.name}. Stay in your own voice and framework.`
+
+  const apiMessages = buildApiMessages(previousMessages, character.id, currentUserMessage, [])
+
+  console.log(`[Stroll2] ${character.name} | ${apiMessages.length} msg(s) in context`)
+
+  const rawText = await callAnthropicAPI(systemPrompt, apiMessages, 3, signal, 500)
+  return rawText
+}
+
+/**
  * Check whether an API key is configured.
  */
 export function hasApiKey() {
