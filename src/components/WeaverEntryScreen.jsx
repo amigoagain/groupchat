@@ -92,7 +92,7 @@ function buildRhizome(w, h) {
 function initRhizome(canvas) {
   const ctx = canvas.getContext('2d')
   let w = canvas.width  = window.innerWidth
-  let h = canvas.height = (window.visualViewport ? window.visualViewport.height : window.innerHeight)
+  let h = canvas.height = window.innerHeight
 
   let data = buildRhizome(w, h)
   let tips = []
@@ -213,15 +213,12 @@ function initRhizome(canvas) {
 
   raf = requestAnimationFrame(tick)
 
-  function getVH() {
-    // Use visualViewport height when available so the canvas doesn't
-    // render behind the keyboard on iOS
-    return window.visualViewport ? window.visualViewport.height : window.innerHeight
-  }
-
   function resize() {
-    w = canvas.width  = window.innerWidth
-    h = canvas.height = getVH()
+    const newW = window.innerWidth
+    const newH = window.innerHeight
+    if (newW === w && newH === h) return
+    w = canvas.width  = newW
+    h = canvas.height = newH
     offscreen.width  = w
     offscreen.height = h
     offCtx = offscreen.getContext('2d')
