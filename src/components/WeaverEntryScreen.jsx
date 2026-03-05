@@ -605,7 +605,28 @@ export default function WeaverEntryScreen({
                 fontSize:       '14px',
               }}
             >
-              {isSubmitting ? '·' : '↑'}
+              {isSubmitting ? (
+                <span style={{ opacity: 0.5, fontSize: '12px' }}>·</span>
+              ) : (
+                // Walking figure — side profile, mid-stride
+                <svg width="14" height="16" viewBox="0 0 14 16" fill="none"
+                  stroke="currentColor" strokeWidth="1.5"
+                  strokeLinecap="round" strokeLinejoin="round"
+                >
+                  {/* Head */}
+                  <circle cx="9" cy="2" r="1.5" />
+                  {/* Torso */}
+                  <line x1="8.5" y1="3.5" x2="7.5" y2="8" />
+                  {/* Leading arm (forward) */}
+                  <line x1="8"   y1="5.5" x2="11"  y2="7.5" />
+                  {/* Trailing arm (back) */}
+                  <line x1="8"   y1="5.5" x2="5.5" y2="6.5" />
+                  {/* Leading leg (forward, down) */}
+                  <line x1="7.5" y1="8"   x2="10"  y2="13" />
+                  {/* Trailing leg (back) */}
+                  <line x1="7.5" y1="8"   x2="5"   y2="12" />
+                </svg>
+              )}
             </button>
           </div>
         </div>
