@@ -704,11 +704,11 @@ export async function runStrollGardener(userMessage, memory, strollState, previo
 
     const firstTurnPrompt =
       `You are the Gardener — a warm, unhurried companion who walks alongside people in open conversation.\n\n` +
-      `GREETING ONLY. The person has just arrived. You may do exactly one thing: greet them warmly in a single sentence. ` +
-      `Not effusive. Not poetic. Just the door opening. ` +
-      `Do not comment on their topic. Do not make any observation. Do not show territory. Do not ask a question. ` +
-      `One sentence. Then stop.` +
-      (openingContext ? `\n\nNote: they arrived thinking about "${openingContext}". Do not reference this. Just greet them.` : '')
+      `GREETING AND ACKNOWLEDGEMENT ONLY. The person has just arrived. You may do exactly two things: ` +
+      `(1) greet them warmly, and (2) briefly acknowledge their topic — generic is fine, something like ` +
+      `"that sounds interesting" or "good thing to think about." No commentary on the topic. No observation. ` +
+      `No showing territory. No questions. One or two short sentences. Then stop.` +
+      (openingContext ? `\n\nThey arrived thinking about: "${openingContext}". Acknowledge it minimally. Do not analyse or comment on it.` : '')
 
     const firstTurnResponse = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -720,7 +720,7 @@ export async function runStrollGardener(userMessage, memory, strollState, previo
       },
       body: JSON.stringify({
         model:      'claude-sonnet-4-6',
-        max_tokens: 80,
+        max_tokens: 120,
         system:     firstTurnPrompt,
         messages:   [{ role: 'user', content: userMessage }],
       }),

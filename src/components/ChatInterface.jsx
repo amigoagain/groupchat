@@ -96,6 +96,8 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   const abortControllerRef  = useRef(null)
   const cancelledRef        = useRef(false)
   const sendLockRef         = useRef(false)
+  const strollCloseTimer1   = useRef(null) // outer 2s timer for stroll fade
+  const strollCloseTimer2   = useRef(null) // inner 1.5s timer for onStrollClose
 
   // ── Jump-to-bottom button ──────────────────────────────────────────────────
   const [showScrollBtn, setShowScrollBtn] = useState(false)
@@ -559,9 +561,9 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
             setRoutingNotice(null)
             cancelledRef.current = false
             sendLockRef.current = false
-            setTimeout(() => {
+            strollCloseTimer1.current = setTimeout(() => {
               setStrollFading(true)
-              setTimeout(() => {
+              strollCloseTimer2.current = setTimeout(() => {
                 if (onStrollClose) onStrollClose()
               }, 1500)
             }, 2000)
@@ -697,6 +699,12 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   // ── Handoff threshold tap ──────────────────────────────────────────────────
   const handleThresholdTap = useCallback(() => {
     if (!pendingHandoffChar) return
+    // Cancel any pending stroll-close sequence (race condition: turn 8 may have
+    // triggered the 2s fade timer before the user taps the threshold icon)
+    if (strollCloseTimer1.current) clearTimeout(strollCloseTimer1.current)
+    if (strollCloseTimer2.current) clearTimeout(strollCloseTimer2.current)
+    setStrollFading(false)
+    setStrollClosing(false)
     setHandoffTransitioned(true)
     setHandoffThresholdVisible(false)
     if (onHandoffAccepted) onHandoffAccepted(pendingHandoffChar)
