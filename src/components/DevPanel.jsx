@@ -15,6 +15,7 @@
  */
 import { useState } from 'react'
 import { useDevMode } from '../contexts/DevModeContext.jsx'
+import TranscriptImportModal from './TranscriptImportModal.jsx'
 
 export default function DevPanel() {
   const {
@@ -35,7 +36,8 @@ export default function DevPanel() {
     toggleHux,
   } = useDevMode()
 
-  const [open, setOpen] = useState(false)
+  const [open,       setOpen]       = useState(false)
+  const [showImport, setShowImport] = useState(false)
 
   // Not the dev user — render nothing, leave no trace
   if (!isDevUser) return null
@@ -161,7 +163,32 @@ export default function DevPanel() {
           <div style={{ marginTop: 8, opacity: 0.55, fontSize: '10px' }}>
             States persist across refresh · Reset to all-ON by clearing localStorage
           </div>
+
+          {/* Admin tools */}
+          <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.15)' }}>
+            <div style={{ opacity: 0.7, fontSize: '11px', marginBottom: 8 }}>Admin tools</div>
+            <button
+              onClick={() => { setOpen(false); setShowImport(true) }}
+              style={{
+                background:   'rgba(255,255,255,0.15)',
+                border:       '1px solid rgba(255,255,255,0.25)',
+                borderRadius: '4px',
+                color:        '#fff',
+                fontFamily:   'monospace',
+                fontSize:     '11px',
+                padding:      '4px 12px',
+                cursor:       'pointer',
+              }}
+            >
+              Import Transcript
+            </button>
+          </div>
         </div>
+      )}
+
+      {/* Transcript import modal */}
+      {showImport && (
+        <TranscriptImportModal onClose={() => setShowImport(false)} />
       )}
 
       {/* Spacer so content below the banner is not obscured */}
