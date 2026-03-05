@@ -17,7 +17,8 @@ import { useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { createRoom, ensureParticipant } from '../utils/roomUtils.js'
 import { insertMessages } from '../utils/messageUtils.js'
-import { loadAllCharacters } from '../utils/customCharacters.js'
+import { loadAllCharacters, saveCustomCharacter } from '../utils/customCharacters.js'
+import { generateCharacterFromTranscript } from '../services/claudeApi.js'
 
 // ── Transcript parser ──────────────────────────────────────────────────────────
 
@@ -188,6 +189,8 @@ export default function TranscriptImportModal({ onClose }) {
 
   const [dbChars,        setDbChars]        = useState([])
   const [charMap,        setCharMap]        = useState({})    // charName → character object
+  const [genState,       setGenState]       = useState({})    // charName → 'idle'|'generating'|'done'|'error'
+  const [generatedNames, setGeneratedNames] = useState(new Set()) // names generated this session
 
   const [importStatus,   setImportStatus]   = useState('')
   const [importError,    setImportError]    = useState('')
@@ -241,6 +244,54 @@ export default function TranscriptImportModal({ onClose }) {
       setLookupState('found')
     } catch { setLookupState('notfound') }
   }, [targetEmail])
+
+  // ── Generate character from transcript ───────────────────────────────────────
+
+  const handleGenerateChar = useCallback(async (charName) => {
+    if (!parsed) return
+    setGenState(prev => ({ ...prev, [charName]: 'generating' }))
+    try {
+      // Extract this character's dialogue lines from the transcript
+      const lines = parsed.messages
+        .filter(m => m.senderName.toLowerCase() === charName.toLowerCase())
+        .map(m => m.content)
+
+      // Generate a full profile grounded in their actual voice
+      const profile = await generateCharacterFromTranscript(charName, lines)
+
+      // Build character object matching the autoCreateGardenerCharacter pattern
+      const id   = `gardener_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+      const char = {
+        id,
+        name:            charName,
+        title:           profile.title,
+        initial:         charName.charAt(0).toUpperCase(),
+        color:           profile.color,
+        description:     profile.personality.split('. ').slice(0, 2).join('. ') + '.',
+        personality:     profile.personality,
+        personalityText: profile.personality,
+        isCustom:        false,
+        isCanonical:     false,
+        isVariant:       false,
+        verified:        false,
+        tags:            profile.tags || [],
+        createdBy:       'gardener',
+        upvotes:         0,
+      }
+
+      // Persist to Supabase + localStorage
+      await saveCustomCharacter(char)
+
+      // Update charMap + tracking so the room import uses the real char
+      setCharMap(prev => ({ ...prev, [charName]: char }))
+      setDbChars(prev => [...prev, char])
+      setGeneratedNames(prev => new Set([...prev, charName]))
+      setGenState(prev => ({ ...prev, [charName]: 'done' }))
+    } catch (err) {
+      console.error('[TranscriptImport] char generation failed:', err)
+      setGenState(prev => ({ ...prev, [charName]: 'error' }))
+    }
+  }, [parsed])
 
   // ── Step 3: Import ───────────────────────────────────────────────────────────
 
@@ -362,22 +413,59 @@ export default function TranscriptImportModal({ onClose }) {
               <div style={{ marginBottom: '20px' }}>
                 <span style={S.label}>Character matching</span>
                 {parsed.charNames.map(name => {
-                  const char   = charMap[name]
-                  const inDb   = dbChars.some(c => c.name.toLowerCase() === name.toLowerCase())
+                  const char       = charMap[name]
+                  const wasInDb    = dbChars.some(c => c.name.toLowerCase() === name.toLowerCase() && !generatedNames.has(name))
+                  const isGenerated = generatedNames.has(name)
+                  const gs          = genState[name] || 'idle'
+
                   return (
-                    <div key={name} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                    <div key={name} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
                       <div style={{
                         width: '28px', height: '28px', borderRadius: '50%',
                         background: char?.color || '#aaa',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         color: '#fff', fontSize: '12px', fontWeight: 600, flexShrink: 0,
+                        transition: 'background 0.3s',
                       }}>
                         {char?.initial || name[0]}
                       </div>
                       <span style={{ fontSize: '14px', flex: 1 }}>{name}</span>
-                      <span style={{ fontSize: '12px', fontFamily: 'system-ui, sans-serif', color: inDb ? '#5a7a3a' : '#8a7a4a' }}>
-                        {inDb ? '✓ matched' : '⚬ generic'}
-                      </span>
+
+                      {/* Status / action */}
+                      {wasInDb ? (
+                        <span style={{ fontSize: '12px', fontFamily: 'system-ui, sans-serif', color: '#5a7a3a' }}>
+                          ✓ matched
+                        </span>
+                      ) : isGenerated || gs === 'done' ? (
+                        <span style={{ fontSize: '12px', fontFamily: 'system-ui, sans-serif', color: '#5a7a3a' }}>
+                          ✓ generated &amp; saved
+                        </span>
+                      ) : gs === 'generating' ? (
+                        <span style={{ fontSize: '12px', fontFamily: 'system-ui, sans-serif', color: '#7a8a6a', fontStyle: 'italic' }}>
+                          generating…
+                        </span>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px' }}>
+                          <button
+                            onClick={() => handleGenerateChar(name)}
+                            style={{
+                              background:   '#4a5a24',
+                              color:        '#fff',
+                              border:       'none',
+                              borderRadius: '6px',
+                              padding:      '4px 12px',
+                              fontSize:     '12px',
+                              fontFamily:   'system-ui, sans-serif',
+                              cursor:       'pointer',
+                            }}
+                          >
+                            {gs === 'error' ? 'Retry' : 'Generate'}
+                          </button>
+                          {gs === 'error' && (
+                            <span style={{ fontSize: '11px', color: '#b05a3a', fontFamily: 'system-ui, sans-serif' }}>failed — try again</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )
                 })}

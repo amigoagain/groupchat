@@ -657,6 +657,69 @@ export async function generateFullCharacterRecord(personName) {
 }
 
 /**
+ * Generate a full character record grounded in actual transcript dialogue.
+ *
+ * Used by the transcript import tool when a character is not in the DB.
+ * The dialogue excerpts give Claude the real voice to work from rather than
+ * only general knowledge — important for Gardener-created characters who
+ * may not be historical figures.
+ *
+ * Returns { title, personality, color, tags, category }.
+ */
+export async function generateCharacterFromTranscript(name, dialogueLines = []) {
+  const excerptBlock = dialogueLines
+    .slice(0, 14)
+    .map(line => `  "${line.slice(0, 130).trim()}"`)
+    .join('\n')
+
+  const systemPrompt =
+    `You are a character designer for Kepos, an AI group-chat platform. ` +
+    `You are given a character's name and actual excerpts of their dialogue from a real conversation. ` +
+    `Use these excerpts — their word choice, sentence rhythm, interests, and emotional register — ` +
+    `to write a character profile that faithfully captures the voice shown in the conversation. ` +
+    `If the excerpts suggest the character is fictional or not a well-known historical figure, ` +
+    `base the profile entirely on what the dialogue reveals rather than inventing a biography.`
+
+  const hasExcerpts = dialogueLines.length > 0
+  const userPrompt =
+    `Character name: "${name}"\n\n` +
+    (hasExcerpts
+      ? `Dialogue excerpts from their actual conversation:\n${excerptBlock}\n\n`
+      : '') +
+    `Generate a full character profile${hasExcerpts ? ' grounded in this voice' : ''}.\n` +
+    `Return ONLY valid JSON (no markdown fences, no explanation):\n` +
+    `{\n` +
+    `  "title": "2-5 word descriptor (role, domain, or defining quality)",\n` +
+    `  "personality": "180-250 word system prompt in second person. Start with 'You are ${name}.' ` +
+    `Capture their demonstrated communication style, intellectual or emotional register, ` +
+    `core concerns and how they frame ideas, how they engage with the person they are speaking with, ` +
+    `and any distinctive rhythms or mannerisms visible in the excerpts.",\n` +
+    `  "color": "A hex color that suits their personality — earthy tones for naturalists/historians, ` +
+    `cool blues for scientists, warm greens for gardeners/ecologists, deep purples for mystics/philosophers, ` +
+    `amber for scholars/polymaths, warm reds for activists.",\n` +
+    `  "tags": ["2-5 relevant domain tags, lowercase"],\n` +
+    `  "category": "one of: philosophy, science, politics, arts, literature, history, religion, economics, technology"\n` +
+    `}`
+
+  const text = await callAnthropicAPI(systemPrompt, [{ role: 'user', content: userPrompt }], 2, null, 800)
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('Could not parse generated character record.')
+
+  const result = JSON.parse(jsonMatch[0])
+  if (!result.title || !result.personality || !result.color) {
+    throw new Error('Incomplete character record returned.')
+  }
+
+  return {
+    title:       result.title.trim(),
+    personality: result.personality.trim(),
+    color:       /^#[0-9a-fA-F]{6}$/.test(result.color) ? result.color : '#4A5C3A',
+    tags:        Array.isArray(result.tags) ? result.tags.slice(0, 5) : [],
+    category:    result.category || 'history',
+  }
+}
+
+/**
  * Generate a character profile for a given person/concept name.
  * Lightweight version — returns { title, personality, color }.
  */
