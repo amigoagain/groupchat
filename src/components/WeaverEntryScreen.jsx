@@ -1,17 +1,18 @@
 /**
  * WeaverEntryScreen.jsx  — Kepos primary entry screen
  * ─────────────────────────────────────────────────────────────
- * Three-layer flex column filling 100dvh:
- *   1. Header (52px): wordmark centred, hamburger absolute right
- *   2. Canvas (flex 1): rhizome animation fills remaining space
- *   3. Input bar (auto): frosted-glass pill at bottom
+ * Two-layer flex column filling the visual viewport:
+ *   1. Canvas (flex 1): rhizome animation fills everything above input bar.
+ *      Header is a transparent absolute overlay inside this layer so the
+ *      canvas runs edge-to-edge and through the top bar area.
+ *   2. Input bar (auto): frosted-glass pill at bottom.
  *
- * Keyboard handling: rootH state tracks visualViewport.height.
- * When iOS keyboard opens, vv.height shrinks → rootH shrinks →
- * root container shrinks → canvas (flex:1) shrinks → input bar
- * stays visible. Canvas bitmap is rebuilt (debounced 150 ms).
+ * Keyboard handling: rootH tracks visualViewport.height so layout
+ * fills exactly the visible area above the iOS keyboard. rootY tracks
+ * vv.offsetTop so the fixed root follows iOS's visual viewport scroll.
  *
- * Drawer: position fixed, overlays all three layers.
+ * Menu: top-pill row (my library / public library / account).
+ * Opens downward from the header area with a smooth slide+fade.
  * ─────────────────────────────────────────────────────────────
  */
 
@@ -20,9 +21,9 @@ import { useAuth } from '../contexts/AuthContext.jsx'
 
 // ── Canvas 2D Rhizome ──────────────────────────────────────────────────────────
 
-const OLIVE  = [74,  88,  48]
-const BROWN  = [100, 78,  44]
-const D_OLIVE = [55, 68,  36]
+const OLIVE   = [74,  88,  48]
+const BROWN   = [100, 78,  44]
+const D_OLIVE = [55,  68,  36]
 
 function rgba(rgb, a) { return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a.toFixed(3)})` }
 
@@ -75,10 +76,10 @@ function buildRhizome(w, h) {
   const numGroups = 2 + Math.floor(Math.random() * 2)
 
   for (let g = 0; g < numGroups; g++) {
-    const gx      = w * (0.08 + Math.random() * 0.84)
-    const gy      = h * (0.08 + Math.random() * 0.84)
-    const gAngle  = Math.random() * Math.PI * 2
-    const nPaths  = 2 + Math.floor(Math.random() * 2)
+    const gx     = w * (0.08 + Math.random() * 0.84)
+    const gy     = h * (0.08 + Math.random() * 0.84)
+    const gAngle = Math.random() * Math.PI * 2
+    const nPaths = 2 + Math.floor(Math.random() * 2)
 
     for (let p = 0; p < nPaths; p++) {
       walkPath(
@@ -282,11 +283,10 @@ export default function WeaverEntryScreen({
 
   const [inputText,    setInputText]    = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [drawerOpen,   setDrawerOpen]   = useState(false)
+  const [menuOpen,     setMenuOpen]     = useState(false)
+
   // rootH/rootY track the visual viewport so the layout fills exactly the
   // visible area above the keyboard on iOS Safari.
-  // vv.height  → how tall the root should be
-  // vv.offsetTop → how far iOS has scrolled the page (we follow it via top:)
   const [rootH, setRootH] = useState(() => window.visualViewport?.height ?? window.innerHeight)
   const [rootY, setRootY] = useState(0)
 
@@ -295,10 +295,6 @@ export default function WeaverEntryScreen({
   const canvasWrapperRef = useRef(null)
 
   // Lock html/body scroll while entry screen is mounted.
-  // overflow:hidden prevents rubber-band scroll. The scroll event listener
-  // immediately resets any document scroll that iOS Safari triggers when the
-  // keyboard opens (iOS tries to scroll the page to reveal the focused input,
-  // which would push the fixed root container above the visible area).
   useEffect(() => {
     const html = document.documentElement
     const body = document.body
@@ -315,11 +311,7 @@ export default function WeaverEntryScreen({
     }
   }, [])
 
-  // Track the visual viewport size and position.
-  // vv.resize → keyboard opening/closing (height changes)
-  // vv.scroll → iOS scrolled the visual viewport offset (offsetTop changes)
-  // Both rootH and rootY are updated together so the root div always fills
-  // exactly the visible area above the keyboard.
+  // Track visual viewport size and position.
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
@@ -339,38 +331,17 @@ export default function WeaverEntryScreen({
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const cleanup = initRhizome(canvas)
-    return cleanup
+    return initRhizome(canvas)
   }, [])
 
   // Block touchmove on canvas wrapper only.
-  // The textarea lives in the input bar layer outside this wrapper —
-  // no exemption logic needed.
   useEffect(() => {
     const wrapper = canvasWrapperRef.current
     if (!wrapper) return
     const preventScroll = (e) => { e.preventDefault() }
     wrapper.addEventListener('touchmove', preventScroll, { passive: false })
-    return () => {
-      wrapper.removeEventListener('touchmove', preventScroll)
-    }
+    return () => { wrapper.removeEventListener('touchmove', preventScroll) }
   }, [])
-
-  // Close drawer on outside click / tap
-  useEffect(() => {
-    if (!drawerOpen) return
-    const handler = (e) => {
-      if (!e.target.closest('.kepos-drawer') && !e.target.closest('.kepos-hamburger')) {
-        setDrawerOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    document.addEventListener('touchstart', handler, { passive: true })
-    return () => {
-      document.removeEventListener('mousedown', handler)
-      document.removeEventListener('touchstart', handler)
-    }
-  }, [drawerOpen])
 
   const handleSubmit = async () => {
     const text = inputText.trim()
@@ -394,106 +365,63 @@ export default function WeaverEntryScreen({
 
   const handleTextareaChange = (e) => {
     setInputText(e.target.value)
-    // Auto-resize
     const el = e.target
     el.style.height = 'auto'
     el.style.height = Math.min(el.scrollHeight, 120) + 'px'
   }
 
-  const drawerItems = [
+  // ── Menu items ─────────────────────────────────────────────────────────────
+  const menuItems = [
     {
-      label: 'My Strolls',
-      icon:  '🌿',
-      action: () => { setDrawerOpen(false); onOpenLibrary?.() },
+      label:  'my library',
+      action: () => { setMenuOpen(false); onOpenLibrary?.('private', 'my_convos') },
     },
     {
-      label: 'My Conversations',
-      icon:  '💬',
-      action: () => { setDrawerOpen(false); onOpenLibrary?.() },
+      label:  'public library',
+      action: () => { setMenuOpen(false); onOpenLibrary?.('public') },
     },
     {
-      label: 'Library',
-      icon:  '📚',
-      action: () => { setDrawerOpen(false); onOpenLibrary?.() },
-    },
-    {
-      label: 'Settings',
-      icon:  '⚙',
-      action: () => { setDrawerOpen(false) }, // placeholder
-    },
-    {
-      label: isAuthenticated ? (username || 'Account') : 'Sign In',
-      icon:  '○',
-      action: () => { setDrawerOpen(false); onSignIn?.() },
+      label:  'account',
+      action: () => { setMenuOpen(false); onSignIn?.() },
     },
   ]
 
+  // ── Styles ─────────────────────────────────────────────────────────────────
+
+  const pillStyle = {
+    background:           'rgba(245, 241, 234, 0.88)',
+    WebkitBackdropFilter: 'blur(14px)',
+    backdropFilter:       'blur(14px)',
+    border:               '1px solid rgba(107, 124, 71, 0.22)',
+    borderRadius:         '20px',
+    padding:              '7px 18px',
+    cursor:               'pointer',
+    color:                '#4a5830',
+    fontFamily:           'Georgia, serif',
+    fontSize:             '14px',
+    letterSpacing:        '0.01em',
+    whiteSpace:           'nowrap',
+    boxShadow:            '0 2px 14px rgba(0,0,0,0.10)',
+    transition:           'background 0.15s, color 0.15s',
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <div style={{
-      display:           'flex',
-      flexDirection:     'column',
-      height:            rootH,
-      position:          'fixed',
-      top:               rootY,
-      left:              0,
-      right:             0,
-      overflow:          'hidden',
-      background:        '#f5f2ec',
+      display:            'flex',
+      flexDirection:      'column',
+      height:             rootH,
+      position:           'fixed',
+      top:                rootY,
+      left:               0,
+      right:              0,
+      overflow:           'hidden',
+      background:         '#f5f2ec',
       overscrollBehavior: 'none',
     }}>
 
-      {/* ── Header ── */}
-      <div style={{
-        height:         '52px',
-        flexShrink:     0,
-        position:       'relative',
-        display:        'flex',
-        alignItems:     'center',
-        justifyContent: 'center',
-        paddingTop:     'env(safe-area-inset-top, 0px)',
-      }}>
-        {/* Wordmark */}
-        <span style={{
-          fontFamily:    'Georgia, serif',
-          fontSize:      '13px',
-          letterSpacing: '0.18em',
-          textTransform: 'uppercase',
-          color:         '#4a5830',
-          opacity:       0.7,
-          userSelect:    'none',
-          pointerEvents: 'none',
-        }}>
-          kepos
-        </span>
-
-        {/* Hamburger — absolute within header */}
-        <button
-          className="kepos-hamburger"
-          onClick={() => setDrawerOpen(o => !o)}
-          aria-label="Menu"
-          style={{
-            position:      'absolute',
-            right:         '16px',
-            top:           '50%',
-            transform:     'translateY(-50%)',
-            background:    'transparent',
-            border:        'none',
-            cursor:        'pointer',
-            padding:       '8px',
-            display:       'flex',
-            flexDirection: 'column',
-            gap:           '5px',
-            opacity:       drawerOpen ? 0 : 0.6,
-            transition:    'opacity 0.2s',
-          }}
-        >
-          <span style={{ display: 'block', width: '22px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
-          <span style={{ display: 'block', width: '22px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
-          <span style={{ display: 'block', width: '14px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
-        </button>
-      </div>
-
-      {/* ── Canvas layer ── */}
+      {/* ── Canvas layer — fills all space above input bar ── */}
       <div
         ref={canvasWrapperRef}
         onTouchStart={(e) => e.stopPropagation()}
@@ -504,6 +432,7 @@ export default function WeaverEntryScreen({
           minHeight: 0,
         }}
       >
+        {/* Rhizome canvas — full size */}
         <canvas
           ref={canvasRef}
           style={{
@@ -514,7 +443,96 @@ export default function WeaverEntryScreen({
             height:   '100%',
           }}
         />
+
+        {/* ── Header overlay — transparent, floats above canvas ── */}
+        <div style={{
+          position:      'absolute',
+          top:           0,
+          left:          0,
+          right:         0,
+          paddingTop:    'env(safe-area-inset-top, 0px)',
+          height:        'calc(52px + env(safe-area-inset-top, 0px))',
+          display:       'flex',
+          alignItems:    'flex-end',
+          justifyContent:'flex-end',
+          paddingRight:  '10px',
+          paddingBottom: '8px',
+          zIndex:        10,
+          boxSizing:     'border-box',
+          // No background — canvas shows through
+        }}>
+          {/* Menu trigger — three thin lines */}
+          <button
+            onClick={() => setMenuOpen(o => !o)}
+            aria-label="Menu"
+            style={{
+              background:    'transparent',
+              border:        'none',
+              cursor:        'pointer',
+              padding:       '8px',
+              display:       'flex',
+              flexDirection: 'column',
+              gap:           '5px',
+              opacity:       menuOpen ? 0.3 : 0.55,
+              transition:    'opacity 0.2s',
+            }}
+          >
+            <span style={{ display: 'block', width: '22px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
+            <span style={{ display: 'block', width: '22px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
+            <span style={{ display: 'block', width: '14px', height: '1.5px', background: '#3a4a20', borderRadius: '1px' }} />
+          </button>
+        </div>
+
+        {/* ── Pill menu — slides down from header ── */}
+        {/* Always mounted so the transition plays on close */}
+        <div style={{
+          position:      'absolute',
+          top:           'calc(48px + env(safe-area-inset-top, 0px))',
+          left:          0,
+          right:         0,
+          zIndex:        20,
+          display:       'flex',
+          flexDirection: 'column',
+          alignItems:    'center',
+          opacity:       menuOpen ? 1 : 0,
+          transform:     menuOpen ? 'translateY(0px)' : 'translateY(-10px)',
+          pointerEvents: menuOpen ? 'auto' : 'none',
+          transition:    'opacity 0.20s ease, transform 0.20s ease',
+        }}>
+          {/* Invisible backdrop — tap anywhere outside pills to close */}
+          <div
+            onClick={() => setMenuOpen(false)}
+            style={{
+              position: 'fixed',
+              inset:    0,
+              zIndex:   -1,
+            }}
+          />
+
+          {/* Pill row */}
+          <div style={{
+            display:    'flex',
+            gap:        '8px',
+            padding:    '0 16px',
+            flexWrap:   'wrap',
+            justifyContent: 'center',
+          }}>
+            {menuItems.map(item => (
+              <button
+                key={item.label}
+                onClick={item.action}
+                style={pillStyle}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,241,234,0.97)'; e.currentTarget.style.color = '#3a4a1a' }}
+                onMouseLeave={e => { e.currentTarget.style.background = pillStyle.background; e.currentTarget.style.color = pillStyle.color }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
       </div>
+      {/* end canvas layer */}
 
       {/* ── Input bar layer ── */}
       <div style={{
@@ -522,7 +540,6 @@ export default function WeaverEntryScreen({
         paddingBottom: 'max(12px, env(safe-area-inset-bottom))',
         paddingTop:    '8px',
       }}>
-        {/* Inner wrapper: max-width + horizontal padding, centred via margin */}
         <div style={{
           maxWidth: '520px',
           margin:   '0 auto',
@@ -556,10 +573,10 @@ export default function WeaverEntryScreen({
                 border:     'none',
                 outline:    'none',
                 resize:     'none',
-                // 16px: iOS Safari auto-zoom threshold — below this it zooms on focus
-                color:      '#2e3420',
+                // Green throughout — matches the resting placeholder color
+                color:      '#4a5830',
                 fontFamily: 'Georgia, serif',
-                fontSize:   '16px',
+                fontSize:   '16px',  // 16px: prevents iOS auto-zoom on focus
                 lineHeight: '1.5',
                 padding:    '2px 0',
                 minHeight:  '24px',
@@ -592,97 +609,6 @@ export default function WeaverEntryScreen({
             </button>
           </div>
         </div>
-      </div>
-
-      {/* ── Drawer overlay (position fixed — covers all layers) ── */}
-      {drawerOpen && (
-        <div
-          style={{
-            position:   'fixed',
-            inset:      0,
-            background: 'rgba(0,0,0,0.18)',
-            zIndex:     300,
-          }}
-        />
-      )}
-
-      {/* ── Drawer panel (position fixed — slides in from left) ── */}
-      <div
-        className="kepos-drawer"
-        style={{
-          position:      'fixed',
-          top:           0,
-          left:          0,
-          bottom:        0,
-          width:         '260px',
-          background:    '#1a1a18',
-          zIndex:        400,
-          transform:     drawerOpen ? 'translateX(0)' : 'translateX(-100%)',
-          transition:    'transform 0.28s cubic-bezier(0.22, 1, 0.36, 1)',
-          display:       'flex',
-          flexDirection: 'column',
-          paddingTop:    'max(28px, env(safe-area-inset-top))',
-          paddingBottom: 'max(28px, env(safe-area-inset-bottom))',
-        }}
-      >
-        {/* Drawer header */}
-        <div style={{
-          display:        'flex',
-          alignItems:     'center',
-          justifyContent: 'space-between',
-          padding:        '0 20px 32px',
-        }}>
-          <span style={{
-            fontFamily:    'Georgia, serif',
-            fontSize:      '12px',
-            letterSpacing: '0.18em',
-            textTransform: 'uppercase',
-            color:         '#6b7c47',
-            opacity:       0.8,
-          }}>kepos</span>
-          <button
-            onClick={() => setDrawerOpen(false)}
-            style={{
-              background: 'none',
-              border:     'none',
-              cursor:     'pointer',
-              color:      '#5a5a5a',
-              fontSize:   '18px',
-              lineHeight: 1,
-              padding:    '4px',
-            }}
-          >✕</button>
-        </div>
-
-        {/* Drawer items */}
-        <nav style={{ flex: 1, overflow: 'auto' }}>
-          {drawerItems.map((item) => (
-            <button
-              key={item.label}
-              onClick={item.action}
-              style={{
-                display:    'flex',
-                alignItems: 'center',
-                gap:        '14px',
-                width:      '100%',
-                padding:    '14px 24px',
-                background: 'none',
-                border:     'none',
-                cursor:     'pointer',
-                textAlign:  'left',
-                color:      '#b8b0a0',
-                fontFamily: 'Georgia, serif',
-                fontSize:   '15px',
-                transition: 'color 0.15s, background 0.15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.color = '#e8e4dc'; e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
-              onMouseLeave={e => { e.currentTarget.style.color = '#b8b0a0'; e.currentTarget.style.background = 'none' }}
-            >
-              <span style={{ fontSize: '14px', opacity: 0.7, minWidth: '20px' }}>{item.icon}</span>
-              {item.label}
-            </button>
-          ))}
-        </nav>
       </div>
 
     </div>

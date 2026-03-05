@@ -62,9 +62,12 @@ export default function App() {
 
   // Library screen — tracks which screen to return to on back
   const [libraryReturnScreen, setLibraryReturnScreen] = useState('weaver')
+  // Library initial tab/section — 'public' | 'private', and initial section for private
+  const [libraryInitialTab,    setLibraryInitialTab]    = useState('public')
+  const [libraryInitialSection, setLibraryInitialSection] = useState('my_convos')
 
-  // Username gate: true means we need to collect the name first
-  const [needsUsername, setNeedsUsername] = useState(!hasUsername())
+  // Username gate: disabled for now — name collection happens at a later point
+  const [needsUsername, setNeedsUsername] = useState(false)
 
   // ── Derived display name ──────────────────────────────────────────────────
   const displayName = isAuthenticated
@@ -617,9 +620,13 @@ export default function App() {
   /**
    * Open the Library full-screen view from any screen.
    * Saves current screen so back navigation can restore it.
+   * @param {'public'|'private'} tab      — which tab to land on
+   * @param {string}             section  — which section within private tab
    */
-  const handleOpenLibrary = () => {
+  const handleOpenLibrary = (tab = 'public', section = 'my_convos') => {
     setLibraryReturnScreen(screen)
+    setLibraryInitialTab(tab)
+    setLibraryInitialSection(section)
     setScreen('library')
   }
 
@@ -656,6 +663,16 @@ export default function App() {
     setBranchConfigData(null)
     navigate('/', { replace: true })
     setScreen('weaver')
+  }
+
+  /**
+   * Called by ChatInterface back button.
+   * Returns user to My Conversations in the private library.
+   */
+  const handleBackFromChat = () => {
+    setCurrentRoom(null)
+    navigate('/', { replace: true })
+    handleOpenLibrary('private', 'my_convos')
   }
 
   const handleBackToMode = () => {
@@ -712,6 +729,8 @@ export default function App() {
           onOpenRoom={handleOpenRoom}
           onOpenBranchConfig={handleOpenBranchConfig}
           onContinueStroll={handleContinueStroll}
+          initialTab={libraryInitialTab}
+          initialSection={libraryInitialSection}
         />
       )}
 
@@ -787,7 +806,7 @@ export default function App() {
         <ChatInterface
           room={currentRoom}
           onUpdateRoom={handleUpdateRoom}
-          onBack={handleBackToStart}
+          onBack={handleBackFromChat}
           onOpenBranchConfig={handleOpenBranchConfig}
           onTriggerStroll={handleTriggerStroll}
           onStrollClose={handleStrollClose}

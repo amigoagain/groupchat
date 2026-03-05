@@ -15,7 +15,7 @@
  *
  * Private (auth-gated):
  *   My Conversations — user's private rooms; dormant strolls show Branch / Continue
- *   My Notebook — CRUD for notebook_entries
+ *   Notes — CRUD for notebook_entries
  */
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase.js'
@@ -325,16 +325,20 @@ const PUBLIC_SECTIONS = [
 
 const PRIVATE_SECTIONS = [
   { id: 'my_convos',  label: 'My Conversations' },
-  { id: 'notebook',   label: 'My Notebook' },
+  { id: 'notebook',   label: 'Notes' },
 ]
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, onContinueStroll }) {
+export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, onContinueStroll, initialTab = 'public', initialSection = null }) {
   const { isAuthenticated, userId } = useAuth()
 
-  const [activeTab,     setActiveTab]     = useState('public')
-  const [activeSection, setActiveSection] = useState('architecture')
+  const [activeTab,     setActiveTab]     = useState(initialTab)
+  const [activeSection, setActiveSection] = useState(
+    initialTab === 'public'
+      ? 'architecture'
+      : (initialSection || 'my_convos')
+  )
   const [data,          setData]          = useState({})
   const [loading,       setLoading]       = useState(false)
   const [isMobile,      setIsMobile]      = useState(() => window.innerWidth < 768)
@@ -356,10 +360,11 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  // Switch tab → go to first section in that tab
+  // Switch tab → land on first section for that tab
   const handleTabSwitch = (tab) => {
     setActiveTab(tab)
-    setActiveSection(tab === 'public' ? 'architecture' : 'my_convos')
+    const firstSection = tab === 'public' ? 'architecture' : 'my_convos'
+    setActiveSection(firstSection)
   }
 
   async function loadSection(section) {
@@ -414,8 +419,6 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
     setLoading(false)
   }
 
-  const sections = activeTab === 'public' ? PUBLIC_SECTIONS : PRIVATE_SECTIONS
-
   return (
     <div style={S.screen}>
       {/* Header */}
@@ -439,100 +442,145 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
       {/* Body */}
       <div style={{ ...S.body, position: 'relative' }}>
 
-        {/* Sidebar toggle — mobile only, shown when sidebar is collapsed */}
-        {isMobile && !sidebarOpen && (
-          <button
-            onClick={() => setSidebarOpen(true)}
-            aria-label="Open navigation"
-            style={{
-              position:   'absolute',
-              left:       0,
-              top:        '20px',
-              zIndex:     6,
-              background: 'none',
-              border:     'none',
-              cursor:     'pointer',
-              padding:    '12px 8px',
-              color:      '#6b7c47',
-              display:    'flex',
-              alignItems: 'center',
-            }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="9 18 15 12 9 6"/>
-            </svg>
-          </button>
+        {/* ── PUBLIC TAB: sidebar + content ── */}
+        {activeTab === 'public' && (
+          <>
+            {/* Sidebar toggle — mobile only, shown when sidebar is collapsed */}
+            {isMobile && !sidebarOpen && (
+              <button
+                onClick={() => setSidebarOpen(true)}
+                aria-label="Open navigation"
+                style={{
+                  position:   'absolute',
+                  left:       0,
+                  top:        '20px',
+                  zIndex:     6,
+                  background: 'none',
+                  border:     'none',
+                  cursor:     'pointer',
+                  padding:    '12px 8px',
+                  color:      '#6b7c47',
+                  display:    'flex',
+                  alignItems: 'center',
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+              </button>
+            )}
+
+            {/* Scrim — mobile only */}
+            {isMobile && sidebarOpen && (
+              <div
+                onClick={() => setSidebarOpen(false)}
+                style={{
+                  position:   'absolute',
+                  inset:      0,
+                  zIndex:     5,
+                  background: 'rgba(0,0,0,0.30)',
+                }}
+              />
+            )}
+
+            {/* Sidebar */}
+            <div style={isMobile ? {
+              position:    'absolute',
+              top:         0,
+              left:        0,
+              bottom:      0,
+              width:       '200px',
+              borderRight: '1px solid #2a2a2a',
+              padding:     '16px 0',
+              overflowY:   'auto',
+              zIndex:      10,
+              background:  '#111',
+              transform:   sidebarOpen ? 'translateX(0)' : 'translateX(-220px)',
+              transition:  'transform 0.24s cubic-bezier(0.22, 1, 0.36, 1)',
+            } : S.sidebar}>
+              {PUBLIC_SECTIONS.map(s => (
+                <button
+                  key={s.id}
+                  style={S.sidebarItem(activeSection === s.id)}
+                  onClick={() => { setActiveSection(s.id); if (isMobile) setSidebarOpen(false) }}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Public content */}
+            <div style={S.content}>
+              {loading && <div style={S.loading}>loading…</div>}
+              {!loading && activeSection === 'architecture'  && <ArchitectureSection />}
+              {!loading && activeSection === 'founding'      && <FoundingSection />}
+              {!loading && activeSection === 'cases'         && <CasesSection />}
+              {!loading && activeSection === 'journals'      && <JournalsSection data={data} />}
+              {!loading && activeSection === 'governance'    && <GovernanceSection items={data.governance} />}
+              {!loading && activeSection === 'public_convos' && (
+                <PublicConvosSection rooms={data.public_convos} onOpenRoom={onOpenRoom} />
+              )}
+            </div>
+          </>
         )}
 
-        {/* Scrim — mobile only, tapping outside sidebar closes it */}
-        {isMobile && sidebarOpen && (
-          <div
-            onClick={() => setSidebarOpen(false)}
-            style={{
-              position:   'absolute',
-              inset:      0,
-              zIndex:     5,
-              background: 'rgba(0,0,0,0.30)',
-            }}
-          />
+        {/* ── PRIVATE TAB: no sidebar — full-width with conversations/notes toggle ── */}
+        {activeTab === 'private' && (
+          <div style={{ ...S.content, maxWidth: '640px', paddingTop: '20px' }}>
+
+            {/* Conversations / Notes toggle */}
+            <div style={{
+              display:       'flex',
+              gap:           0,
+              marginBottom:  '24px',
+              borderBottom:  '1px solid #2a2a2a',
+            }}>
+              {PRIVATE_SECTIONS.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => setActiveSection(s.id)}
+                  style={{
+                    background:    'none',
+                    border:        'none',
+                    borderBottom:  activeSection === s.id ? '2px solid #6b7c47' : '2px solid transparent',
+                    color:         activeSection === s.id ? '#8faf52' : '#5a5a5a',
+                    fontFamily:    'monospace',
+                    fontSize:      '11px',
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    padding:       '8px 16px 8px 0',
+                    cursor:        'pointer',
+                    marginBottom:  '-1px',
+                    transition:    'color 0.15s',
+                  }}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            {loading && <div style={S.loading}>loading…</div>}
+
+            {!loading && activeSection === 'my_convos' && (
+              <MyConvosSection
+                rooms={data.my_convos}
+                strollStateMap={data.strollStateMap || {}}
+                onOpenRoom={onOpenRoom}
+                onOpenBranchConfig={onOpenBranchConfig}
+                onContinueStroll={onContinueStroll}
+              />
+            )}
+            {!loading && activeSection === 'notebook' && (
+              <NotebookSection
+                items={data.notebook}
+                userId={userId}
+                isAuthenticated={isAuthenticated}
+                onRefresh={() => loadSection('notebook')}
+              />
+            )}
+          </div>
         )}
 
-        {/* Sidebar — inline on desktop, absolute overlay on mobile */}
-        <div style={isMobile ? {
-          position:    'absolute',
-          top:         0,
-          left:        0,
-          bottom:      0,
-          width:       '200px',
-          borderRight: '1px solid #2a2a2a',
-          padding:     '16px 0',
-          overflowY:   'auto',
-          zIndex:      10,
-          background:  '#111',
-          transform:   sidebarOpen ? 'translateX(0)' : 'translateX(-220px)',
-          transition:  'transform 0.24s cubic-bezier(0.22, 1, 0.36, 1)',
-        } : S.sidebar}>
-          {sections.map(s => (
-            <button
-              key={s.id}
-              style={S.sidebarItem(activeSection === s.id)}
-              onClick={() => { setActiveSection(s.id); if (isMobile) setSidebarOpen(false) }}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Content */}
-        <div style={S.content}>
-          {loading && <div style={S.loading}>loading…</div>}
-
-          {!loading && activeSection === 'architecture'  && <ArchitectureSection />}
-          {!loading && activeSection === 'founding'      && <FoundingSection />}
-          {!loading && activeSection === 'cases'         && <CasesSection />}
-          {!loading && activeSection === 'journals'      && <JournalsSection data={data} />}
-          {!loading && activeSection === 'governance'    && <GovernanceSection items={data.governance} />}
-          {!loading && activeSection === 'public_convos' && (
-            <PublicConvosSection rooms={data.public_convos} onOpenRoom={onOpenRoom} />
-          )}
-          {!loading && activeSection === 'my_convos' && (
-            <MyConvosSection
-              rooms={data.my_convos}
-              strollStateMap={data.strollStateMap || {}}
-              onOpenRoom={onOpenRoom}
-              onOpenBranchConfig={onOpenBranchConfig}
-              onContinueStroll={onContinueStroll}
-            />
-          )}
-          {!loading && activeSection === 'notebook' && (
-            <NotebookSection
-              items={data.notebook}
-              userId={userId}
-              isAuthenticated={isAuthenticated}
-              onRefresh={() => loadSection('notebook')}
-            />
-          )}
-        </div>
       </div>
     </div>
   )
@@ -864,7 +912,7 @@ function NotebookSection({ items, userId, isAuthenticated, onRefresh }) {
   if (!isAuthenticated) {
     return (
       <div>
-        <h2 style={S.sectionTitle}>My Notebook</h2>
+        <h2 style={S.sectionTitle}>Notes</h2>
         <div style={S.empty}>Sign in to access your private notebook.</div>
       </div>
     )
@@ -893,7 +941,7 @@ function NotebookSection({ items, userId, isAuthenticated, onRefresh }) {
 
   return (
     <div>
-      <h2 style={S.sectionTitle}>My Notebook</h2>
+      <h2 style={S.sectionTitle}>Notes</h2>
       <div style={{ marginBottom: '24px' }}>
         <textarea
           value={newEntry}
