@@ -419,6 +419,135 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
     setLoading(false)
   }
 
+  // ── Private library — warm entry-screen palette ───────────────────────────
+  // Rendered as an entirely separate tree so the two places feel distinct.
+  if (activeTab === 'private') {
+    return (
+      <div style={{
+        position:      'fixed',
+        inset:         0,
+        background:    '#f5f2ec',
+        fontFamily:    'Georgia, serif',
+        display:       'flex',
+        flexDirection: 'column',
+        zIndex:        900,
+        overflow:      'hidden',
+      }}>
+        {/* Warm header */}
+        <div style={{
+          display:        'flex',
+          alignItems:     'center',
+          padding:        '14px 20px',
+          paddingTop:     'max(14px, env(safe-area-inset-top, 14px))',
+          borderBottom:   '1px solid rgba(107, 124, 71, 0.14)',
+          flexShrink:     0,
+          gap:            '10px',
+          boxSizing:      'border-box',
+        }}>
+          <button
+            onClick={onBack}
+            title="Back"
+            style={{
+              background: 'none',
+              border:     'none',
+              color:      '#4a5830',
+              opacity:    0.55,
+              cursor:     'pointer',
+              padding:    '4px 8px 4px 0',
+              display:    'flex',
+              alignItems: 'center',
+              lineHeight: 1,
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
+          <span style={{
+            fontFamily:    'Georgia, serif',
+            fontSize:      '13px',
+            letterSpacing: '0.14em',
+            color:         '#4a5830',
+            opacity:       0.60,
+            userSelect:    'none',
+          }}>
+            my library
+          </span>
+        </div>
+
+        {/* Conversations / Notes inline toggle */}
+        <div style={{
+          display:      'flex',
+          gap:          0,
+          paddingLeft:  '24px',
+          borderBottom: '1px solid rgba(107, 124, 71, 0.14)',
+          flexShrink:   0,
+        }}>
+          {PRIVATE_SECTIONS.map(s => (
+            <button
+              key={s.id}
+              onClick={() => setActiveSection(s.id)}
+              style={{
+                background:    'none',
+                border:        'none',
+                borderBottom:  activeSection === s.id
+                                 ? '2px solid #6b7c47'
+                                 : '2px solid transparent',
+                color:         activeSection === s.id ? '#4a5830' : '#a09880',
+                fontFamily:    'Georgia, serif',
+                fontSize:      '13px',
+                padding:       '12px 20px 11px 0',
+                cursor:        'pointer',
+                marginBottom:  '-1px',
+                transition:    'color 0.15s',
+                letterSpacing: '0.01em',
+              }}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Content area */}
+        <div style={{
+          flex:      1,
+          overflowY: 'auto',
+          padding:   '24px 24px 48px',
+          maxWidth:  '640px',
+          width:     '100%',
+          boxSizing: 'border-box',
+        }}>
+          {loading && (
+            <div style={{ color: '#a09880', fontSize: '13px', padding: '20px 0', opacity: 0.7 }}>
+              loading…
+            </div>
+          )}
+
+          {!loading && activeSection === 'my_convos' && (
+            <MyConvosSection
+              rooms={data.my_convos}
+              strollStateMap={data.strollStateMap || {}}
+              onOpenRoom={onOpenRoom}
+              onOpenBranchConfig={onOpenBranchConfig}
+              onContinueStroll={onContinueStroll}
+              warm={true}
+            />
+          )}
+          {!loading && activeSection === 'notebook' && (
+            <NotebookSection
+              items={data.notebook}
+              userId={userId}
+              isAuthenticated={isAuthenticated}
+              onRefresh={() => loadSection('notebook')}
+              warm={true}
+            />
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Public library — dark library palette (unchanged) ─────────────────────
   return (
     <div style={S.screen}>
       {/* Header */}
@@ -433,13 +562,8 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={S.tabs}>
-        <button style={S.tab(activeTab === 'public')}  onClick={() => handleTabSwitch('public')}>Public</button>
-        <button style={S.tab(activeTab === 'private')} onClick={() => handleTabSwitch('private')}>Private</button>
-      </div>
-
-      {/* Body */}
+      {/* Body — no tab strip; public and private are separate places reached
+          via the entry screen pill buttons, not via a toggle within this view */}
       <div style={{ ...S.body, position: 'relative' }}>
 
         {/* ── PUBLIC TAB: sidebar + content ── */}
@@ -522,63 +646,6 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
               )}
             </div>
           </>
-        )}
-
-        {/* ── PRIVATE TAB: no sidebar — full-width with conversations/notes toggle ── */}
-        {activeTab === 'private' && (
-          <div style={{ ...S.content, maxWidth: '640px', paddingTop: '20px' }}>
-
-            {/* Conversations / Notes toggle */}
-            <div style={{
-              display:       'flex',
-              gap:           0,
-              marginBottom:  '24px',
-              borderBottom:  '1px solid #2a2a2a',
-            }}>
-              {PRIVATE_SECTIONS.map(s => (
-                <button
-                  key={s.id}
-                  onClick={() => setActiveSection(s.id)}
-                  style={{
-                    background:    'none',
-                    border:        'none',
-                    borderBottom:  activeSection === s.id ? '2px solid #6b7c47' : '2px solid transparent',
-                    color:         activeSection === s.id ? '#8faf52' : '#5a5a5a',
-                    fontFamily:    'monospace',
-                    fontSize:      '11px',
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase',
-                    padding:       '8px 16px 8px 0',
-                    cursor:        'pointer',
-                    marginBottom:  '-1px',
-                    transition:    'color 0.15s',
-                  }}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-
-            {loading && <div style={S.loading}>loading…</div>}
-
-            {!loading && activeSection === 'my_convos' && (
-              <MyConvosSection
-                rooms={data.my_convos}
-                strollStateMap={data.strollStateMap || {}}
-                onOpenRoom={onOpenRoom}
-                onOpenBranchConfig={onOpenBranchConfig}
-                onContinueStroll={onContinueStroll}
-              />
-            )}
-            {!loading && activeSection === 'notebook' && (
-              <NotebookSection
-                items={data.notebook}
-                userId={userId}
-                isAuthenticated={isAuthenticated}
-                onRefresh={() => loadSection('notebook')}
-              />
-            )}
-          </div>
         )}
 
       </div>
@@ -816,19 +883,29 @@ function PublicConvosSection({ rooms, onOpenRoom }) {
 
 // ── My Conversations section ──────────────────────────────────────────────────
 
-function MyConvosSection({ rooms, strollStateMap = {}, onOpenRoom, onOpenBranchConfig, onContinueStroll }) {
-  if (!rooms) return <div style={S.loading}>loading…</div>
+function MyConvosSection({ rooms, strollStateMap = {}, onOpenRoom, onOpenBranchConfig, onContinueStroll, warm = false }) {
+  // Palette switches between warm (private library) and dark (public library)
+  const divider     = warm ? 'rgba(107, 124, 71, 0.12)' : '#1e1e1e'
+  const nameColor   = warm ? '#4a5830'                  : '#8a9a70'
+  const tsColor     = warm ? '#a09880'                  : '#4a4a4a'
+  const previewColor= warm ? '#8a9a70'                  : '#4a4a4a'
+  const hoverBg     = warm ? 'rgba(107, 124, 71, 0.05)' : 'rgba(255,255,255,0.02)'
+
+  if (!rooms) return (
+    <div style={{ color: warm ? '#a09880' : '#3a3a3a', fontFamily: warm ? 'Georgia, serif' : 'monospace', fontSize: '13px', padding: '20px 0', opacity: 0.7 }}>
+      loading…
+    </div>
+  )
   if (rooms.length === 0) return (
-    <div>
-      <h2 style={S.sectionTitle}>My Conversations</h2>
-      <div style={S.empty}>No conversations yet.</div>
+    <div style={{ color: warm ? '#a09880' : '#3a3a3a', fontFamily: warm ? 'Georgia, serif' : 'monospace', fontSize: '13px', fontStyle: 'italic', padding: '12px 0', opacity: 0.7 }}>
+      No conversations yet.
     </div>
   )
 
   return (
     <div>
-      <h2 style={S.sectionTitle}>My Conversations</h2>
-      <div style={{ borderTop: '1px solid #1e1e1e' }}>
+      {!warm && <h2 style={S.sectionTitle}>My Conversations</h2>}
+      <div style={{ borderTop: `1px solid ${divider}` }}>
         {rooms.map(room => {
           const chars       = (room.characters || []).map(c => c.name).join(', ')
           const displayName = chars || 'Gardener'
@@ -845,11 +922,11 @@ function MyConvosSection({ rooms, strollStateMap = {}, onOpenRoom, onOpenBranchC
                 textAlign:    'left',
                 background:   'none',
                 border:       'none',
-                borderBottom: '1px solid #1e1e1e',
+                borderBottom: `1px solid ${divider}`,
                 padding:      '14px 2px',
                 cursor:       'pointer',
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = hoverBg }}
               onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
             >
               <div style={{
@@ -860,8 +937,8 @@ function MyConvosSection({ rooms, strollStateMap = {}, onOpenRoom, onOpenBranchC
                 marginBottom:   '3px',
               }}>
                 <span style={{
-                  fontSize:     '13px',
-                  color:        '#8a9a70',
+                  fontSize:     warm ? '14px' : '13px',
+                  color:        nameColor,
                   fontFamily:   'Georgia, serif',
                   overflow:     'hidden',
                   textOverflow: 'ellipsis',
@@ -873,7 +950,7 @@ function MyConvosSection({ rooms, strollStateMap = {}, onOpenRoom, onOpenBranchC
                 </span>
                 <span style={{
                   fontSize:   '11px',
-                  color:      '#4a4a4a',
+                  color:      tsColor,
                   fontFamily: 'monospace',
                   whiteSpace: 'nowrap',
                   flexShrink: 0,
@@ -884,11 +961,12 @@ function MyConvosSection({ rooms, strollStateMap = {}, onOpenRoom, onOpenBranchC
               {preview && (
                 <div style={{
                   fontSize:     '12px',
-                  color:        '#4a4a4a',
+                  color:        previewColor,
                   overflow:     'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace:   'nowrap',
                   lineHeight:   '1.4',
+                  fontFamily:   warm ? 'Georgia, serif' : 'inherit',
                 }}>
                   {preview}
                 </div>
@@ -903,18 +981,56 @@ function MyConvosSection({ rooms, strollStateMap = {}, onOpenRoom, onOpenBranchC
 
 // ── Notebook section ──────────────────────────────────────────────────────────
 
-function NotebookSection({ items, userId, isAuthenticated, onRefresh }) {
+function NotebookSection({ items, userId, isAuthenticated, onRefresh, warm = false }) {
   const [newEntry,    setNewEntry]    = useState('')
   const [editingId,   setEditingId]   = useState(null)
   const [editContent, setEditContent] = useState('')
   const [saving,      setSaving]      = useState(false)
 
+  // Warm-palette overrides for the private library view
+  const inputStyle = warm ? {
+    width:        '100%',
+    minHeight:    '90px',
+    background:   'rgba(200, 190, 170, 0.20)',
+    border:       '1px solid rgba(107, 124, 71, 0.22)',
+    borderRadius: '6px',
+    color:        '#4a5830',
+    fontFamily:   'Georgia, serif',
+    fontSize:     '16px',
+    padding:      '12px',
+    resize:       'vertical',
+    outline:      'none',
+    boxSizing:    'border-box',
+    marginBottom: '10px',
+  } : S.notebookInput
+
+  const cardStyle = warm ? {
+    background:   'rgba(200, 190, 170, 0.18)',
+    border:       '1px solid rgba(107, 124, 71, 0.14)',
+    borderRadius: '6px',
+    padding:      '16px 18px',
+    marginBottom: '12px',
+  } : S.card
+
+  const btnStyle = (variant) => warm ? {
+    padding:      '6px 14px',
+    background:   variant === 'primary' ? 'rgba(107, 124, 71, 0.12)' : 'transparent',
+    border:       `1px solid ${variant === 'primary' ? 'rgba(107, 124, 71, 0.28)' : 'rgba(107, 124, 71, 0.16)'}`,
+    borderRadius: '20px',
+    color:        variant === 'primary' ? '#4a5830' : '#8a9a70',
+    fontFamily:   'Georgia, serif',
+    fontSize:     '13px',
+    cursor:       'pointer',
+    marginRight:  '6px',
+  } : S.btn(variant)
+
+  const emptyStyle = warm
+    ? { color: '#a09880', fontFamily: 'Georgia, serif', fontSize: '13px', fontStyle: 'italic', padding: '12px 0', opacity: 0.7 }
+    : S.empty
+
   if (!isAuthenticated) {
     return (
-      <div>
-        <h2 style={S.sectionTitle}>Notes</h2>
-        <div style={S.empty}>Sign in to access your private notebook.</div>
-      </div>
+      <div style={emptyStyle}>Sign in to see your notes.</div>
     )
   }
 
@@ -941,47 +1057,60 @@ function NotebookSection({ items, userId, isAuthenticated, onRefresh }) {
 
   return (
     <div>
-      <h2 style={S.sectionTitle}>Notes</h2>
+      {!warm && <h2 style={S.sectionTitle}>Notes</h2>}
       <div style={{ marginBottom: '24px' }}>
         <textarea
           value={newEntry}
           onChange={e => setNewEntry(e.target.value)}
           placeholder="New entry…"
-          style={S.notebookInput}
+          style={inputStyle}
         />
-        <button style={S.btn('primary')} onClick={handleAdd} disabled={saving}>
+        <button style={btnStyle('primary')} onClick={handleAdd} disabled={saving}>
           {saving ? 'saving…' : 'add entry'}
         </button>
       </div>
 
       {(!items || items.length === 0) ? (
-        <div style={S.empty}>No notebook entries yet.</div>
+        <div style={emptyStyle}>No notes yet.</div>
       ) : (
         items.map(item => (
-          <div key={item.id} style={S.card}>
+          <div key={item.id} style={cardStyle}>
             {editingId === item.id ? (
               <>
                 <textarea
                   value={editContent}
                   onChange={e => setEditContent(e.target.value)}
-                  style={{ ...S.notebookInput, minHeight: '70px' }}
+                  style={{ ...inputStyle, minHeight: '70px' }}
                 />
-                <button style={S.btn('primary')} onClick={() => handleUpdate(item.id)}>save</button>
-                <button style={S.btn()} onClick={() => setEditingId(null)}>cancel</button>
+                <button style={btnStyle('primary')} onClick={() => handleUpdate(item.id)}>save</button>
+                <button style={btnStyle()} onClick={() => setEditingId(null)}>cancel</button>
               </>
             ) : (
               <>
-                <div style={{ fontSize: '14px', color: '#b8b3aa', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
+                <div style={{
+                  fontSize:   '14px',
+                  color:      warm ? '#4a5830' : '#b8b3aa',
+                  lineHeight: 1.65,
+                  whiteSpace: 'pre-wrap',
+                  fontFamily: warm ? 'Georgia, serif' : 'inherit',
+                }}>
                   {item.content}
                 </div>
-                <div style={{ ...S.cardMeta, display: 'flex', gap: '12px', marginTop: '10px' }}>
+                <div style={{
+                  display:    'flex',
+                  gap:        '12px',
+                  marginTop:  '10px',
+                  fontSize:   '11px',
+                  color:      warm ? '#a09880' : '#3a3a3a',
+                  fontFamily: 'monospace',
+                }}>
                   <span>{new Date(item.created_at).toLocaleString()}</span>
                   <button
-                    style={{ background: 'none', border: 'none', color: '#5a5a5a', cursor: 'pointer', fontFamily: 'monospace', fontSize: '11px', padding: 0 }}
+                    style={{ background: 'none', border: 'none', color: warm ? '#6b7c47' : '#5a5a5a', cursor: 'pointer', fontFamily: 'monospace', fontSize: '11px', padding: 0 }}
                     onClick={() => { setEditingId(item.id); setEditContent(item.content) }}
                   >edit</button>
                   <button
-                    style={{ background: 'none', border: 'none', color: '#6a2a2a', cursor: 'pointer', fontFamily: 'monospace', fontSize: '11px', padding: 0 }}
+                    style={{ background: 'none', border: 'none', color: warm ? '#8a4a3a' : '#6a2a2a', cursor: 'pointer', fontFamily: 'monospace', fontSize: '11px', padding: 0 }}
                     onClick={() => handleDelete(item.id)}
                   >delete</button>
                 </div>
