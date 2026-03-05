@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react'
 import MessageBubble from './MessageBubble.jsx'
 import TypingIndicator from './TypingIndicator.jsx'
 import UsernameModal from './UsernameModal.jsx'
-import { getCharacterResponse, getStroll2Response, generateInviteMessage } from '../services/claudeApi.js'
+import { getCharacterResponse, getStroll2Response, generateInviteMessage, callDirectAPI } from '../services/claudeApi.js'
 import { routeMessage, formatRoutingNotice } from '../services/weaverRouter.js'
 import {
   fetchOrCreateMemory, runGardenerRouter, updateGardenerMemory,
@@ -53,6 +53,11 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
   // Handoff tracking for Stroll 1
   const [strollHandoff, setStrollHandoff] = useState({ status: 'none', characterName: null })
+
+  // Handoff threshold UI state
+  const [pendingHandoffChar,      setPendingHandoffChar]      = useState(null)
+  const [handoffThresholdVisible, setHandoffThresholdVisible] = useState(false)
+  const [handoffTransitioned,     setHandoffTransitioned]     = useState(false)
 
   // Disposition layer for Stroll 2 character responses
   const [stroll2Disposition, setStroll2Disposition] = useState('')
@@ -150,6 +155,34 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
         setMyRole('admin')
       }
     }
+  }, [room?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Dormancy handoff recovery ─────────────────────────────────────────────
+  // When a user returns to a Stroll 1 room, check whether a handoff was
+  // suggested but never completed. If so, re-surface the threshold icon
+  // without re-sending the bridging message.
+  useEffect(() => {
+    if (!isStrollRoom || isStroll2 || !room?.id) return
+    if (!isSupabaseConfigured || !supabase) return
+    ;(async () => {
+      try {
+        const { data: mem } = await supabase
+          .from('gardener_memory')
+          .select('handoff_status, handoff_character')
+          .eq('room_id', room.id)
+          .maybeSingle()
+        if (
+          mem?.handoff_character &&
+          (mem.handoff_status === 'suggested' ||
+           mem.handoff_status === 'question_asked' ||
+           mem.handoff_status === 'accepted')
+        ) {
+          setStrollHandoff({ status: mem.handoff_status, characterName: mem.handoff_character })
+          setPendingHandoffChar(mem.handoff_character)
+          setHandoffThresholdVisible(true)
+        }
+      } catch {}
+    })()
   }, [room?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Polling for new messages ───────────────────────────────────────────────
@@ -422,37 +455,44 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
       // check whether this message is an acceptance
       if (strollHandoff.status === 'suggested' && strollHandoff.characterName) {
         if (detectAffirmative(text)) {
-          // Accept: update DB, then let Gardener make farewell comment with updated memory
-          await updateHandoffState(room.id, 'accepted', strollHandoff.characterName)
-          // Update local state so next check knows we are transitioning
+          // Accept: update DB, generate brief bridging message, then show threshold icon.
+          // onHandoffAccepted is deferred to the user tapping the icon.
+          const acceptedChar = strollHandoff.characterName
+          await updateHandoffState(room.id, 'accepted', acceptedChar)
           setStrollHandoff(h => ({ ...h, status: 'accepting' }))
 
-          // Get updated memory with accepted status for farewell
-          const updatedMemory = memory
-            ? { ...memory, handoff_status: 'accepted', handoff_character: strollHandoff.characterName }
-            : { handoff_status: 'accepted', handoff_character: strollHandoff.characterName }
-
+          // Generate a warm bridging message via direct API (not gardenerMemory)
           setTypingCharacter({ name: 'Gardener', color: '#6b7c47', initial: 'G' })
           try {
-            const { text: farewellText } = await runStrollGardener(
-              text, updatedMemory, currentStrollState, conversationSnapshot, room.id
+            const bridgingSystemPrompt =
+              `You are the Gardener — a warm, unhurried companion who has been walking with someone through an open conversation. ` +
+              `You've just suggested that ${acceptedChar} could be a good companion for the next part of their walk, and the person has accepted. ` +
+              `Write one brief, warm bridging message (2–4 sentences). ` +
+              `Acknowledge their acceptance gently. Orient them toward the new companion with warmth and a sense of quiet possibility. ` +
+              `End the message with exactly the phrase "tap the icon to continue." ` +
+              `Do not use any special markers, brackets, or formatting. Respond with only the message text.`
+            const bridgingText = await callDirectAPI(
+              bridgingSystemPrompt,
+              [{ role: 'user', content: text }],
+              200,
+              controller.signal,
             )
             if (!cancelledRef.current) {
-              const farewellPayload = {
-                type: 'character', content: farewellText,
+              const bridgingPayload = {
+                type: 'character', content: bridgingText,
                 characterId: 'gardener', characterName: 'Gardener',
                 characterColor: '#6b7c47', characterInitial: 'G',
               }
-              let savedFarewell
+              let savedBridging
               if (isSupabaseConfigured && room?.id) {
-                savedFarewell = await insertMessage(farewellPayload, room.id)
+                savedBridging = await insertMessage(bridgingPayload, room.id)
               } else {
-                savedFarewell = { ...farewellPayload, id: `stroll_fare_${Date.now()}`, timestamp: new Date().toISOString() }
+                savedBridging = { ...bridgingPayload, id: `stroll_bridge_${Date.now()}`, timestamp: new Date().toISOString() }
               }
-              setMessages(prev => [...prev, savedFarewell])
+              setMessages(prev => [...prev, savedBridging])
             }
           } catch (err) {
-            console.error('[Stroll] Farewell error:', err)
+            if (err.name !== 'AbortError') console.error('[Stroll] Bridging message error:', err)
           }
 
           setTypingCharacter(null)
@@ -461,8 +501,9 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
           cancelledRef.current = false
           sendLockRef.current = false
 
-          // Trigger Stroll 2 transition
-          if (onHandoffAccepted) onHandoffAccepted(strollHandoff.characterName)
+          // Surface threshold icon — onHandoffAccepted fires only when icon is tapped
+          setPendingHandoffChar(acceptedChar)
+          setHandoffThresholdVisible(true)
           return
         } else {
           // Decline: close the handoff window, continue normally
@@ -652,6 +693,14 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     saveRoom(room.code, { ...room })
     onUpdateRoom({ ...room })
   }, [input, isSending, room, onUpdateRoom, isAuthenticated, authUsername, userId, isStrollRoom, strollState, gooseEnabled, weatherEnabled, bugsEnabled, huxEnabled, gardenerEnabled, routerEnabled, memoryEnabled])
+
+  // ── Handoff threshold tap ──────────────────────────────────────────────────
+  const handleThresholdTap = useCallback(() => {
+    if (!pendingHandoffChar) return
+    setHandoffTransitioned(true)
+    setHandoffThresholdVisible(false)
+    if (onHandoffAccepted) onHandoffAccepted(pendingHandoffChar)
+  }, [pendingHandoffChar, onHandoffAccepted])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -1029,6 +1078,61 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
             )
           })
         })()}
+
+        {/* ── Handoff threshold icon ── */}
+        {/* Centered walking-figure pill rendered after the Gardener's bridging message. */}
+        {/* Persists in the thread as the permanent visual marker of the transition. */}
+        {handoffThresholdVisible && !handoffTransitioned && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0 8px' }}>
+            <button
+              onClick={handleThresholdTap}
+              onTouchEnd={(e) => { e.preventDefault(); handleThresholdTap() }}
+              title="Continue to next companion"
+              aria-label="Continue handoff"
+              style={{
+                display:        'flex',
+                alignItems:     'center',
+                justifyContent: 'center',
+                background:     'rgba(107, 124, 71, 0.10)',
+                border:         '1.5px solid rgba(107, 124, 71, 0.32)',
+                borderRadius:   '32px',
+                padding:        '12px 28px',
+                cursor:         'pointer',
+                color:          '#6b7c47',
+              }}
+            >
+              <svg width="18" height="21" viewBox="0 0 14 16" fill="none"
+                stroke="currentColor" strokeWidth="1.5"
+                strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="9" cy="2" r="1.5" />
+                <line x1="8.5" y1="3.5" x2="7.5" y2="8" />
+                <line x1="8"   y1="5.5" x2="11"  y2="7.5" />
+                <line x1="8"   y1="5.5" x2="5.5" y2="6.5" />
+                <line x1="7.5" y1="8"   x2="10"  y2="13" />
+                <line x1="7.5" y1="8"   x2="5"   y2="12" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {/* ── Soft transition marker ── */}
+        {/* Rendered in-place when the threshold icon is tapped. */}
+        {/* Stays in the thread permanently — stroll messages above, character below. */}
+        {handoffTransitioned && (
+          <div style={{ padding: '16px 24px 6px', textAlign: 'center' }}>
+            <hr style={{
+              border:    'none',
+              borderTop: '1px solid rgba(107, 124, 71, 0.25)',
+              margin:    '0 0 6px',
+            }} />
+            <span style={{
+              fontFamily:    "'Courier Prime', 'Courier New', Courier, monospace",
+              fontSize:      '11px',
+              color:         'rgba(107, 124, 71, 0.50)',
+              letterSpacing: '0.06em',
+            }}>continuing</span>
+          </div>
+        )}
 
         {/* Stroll dormant close — visual break rendered when stroll reaches turn limit */}
         {strollClosing && (
