@@ -6,6 +6,7 @@ import ModeSelection from './components/ModeSelection.jsx'
 import CharacterSelection from './components/CharacterSelection.jsx'
 import ChatInterface from './components/ChatInterface.jsx'
 import AuthScreen from './components/AuthScreen.jsx'
+import AccountScreen from './components/AccountScreen.jsx'
 import PasswordResetScreen from './components/PasswordResetScreen.jsx'
 import BranchConfig from './components/BranchConfig.jsx'
 import WeaverEntryScreen from './components/WeaverEntryScreen.jsx'
@@ -204,6 +205,10 @@ export default function App() {
    * @param {string} reason — optional prompt reason shown to user
    */
   const handleSignIn = (reason = '') => {
+    if (isAuthenticated) {
+      setScreen('account')
+      return
+    }
     setAuthPromptReason(reason)
     setScreen('auth')
   }
@@ -715,6 +720,10 @@ export default function App() {
           onBack={() => setScreen(currentRoom ? 'chat' : 'weaver')}
           promptReason={authPromptReason}
         />
+      )}
+
+      {screen === 'account' && (
+        <AccountScreen onBack={() => setScreen('weaver')} />
       )}
 
       {screen === 'password-reset' && (

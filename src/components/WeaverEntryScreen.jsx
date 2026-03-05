@@ -381,7 +381,7 @@ export default function WeaverEntryScreen({
       action: () => { setMenuOpen(false); onOpenLibrary?.('public') },
     },
     {
-      label:  'account',
+      label:  isAuthenticated ? (username || 'account') : 'account',
       action: () => { setMenuOpen(false); onSignIn?.() },
     },
   ]
