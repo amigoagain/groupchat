@@ -27,64 +27,94 @@ const D_OLIVE = [55, 68,  36]
 function rgba(rgb, a) { return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a.toFixed(3)})` }
 
 function buildRhizome(w, h) {
-  const cx = w / 2
-  const cy = h * 0.44
+  // Wandering-thread design: no central source, no branching hierarchy.
+  // Paths start in small clusters so they run parallel for a while before
+  // diverging or crossing. Smooth angular drift (damped velocity) produces
+  // organic curves. Overlapping transparent strokes stack at crossings to
+  // mark them without any explicit node drawing.
+
   const segments  = []
-  const junctions = []
+  const junctions = [] // unused; kept so renderOffscreen loop is harmless
 
-  function grow(x, y, angle, depth, maxDepth) {
-    if (depth > maxDepth) return
-    if (x < -w * 0.12 || x > w * 1.12 || y < -h * 0.12 || y > h * 1.12) return
+  function walkPath(startX, startY, startAngle, opts) {
+    let x      = startX
+    let y      = startY
+    let angle  = startAngle
+    let dAngle = (Math.random() - 0.5) * opts.initCurl
 
-    const baseLen  = Math.max(6, 30 - depth * 3.2)
-    const numSteps = Math.floor(baseLen * (0.65 + Math.random() * 0.7))
-    const step     = Math.max(1.8, 3.8 - depth * 0.25)
+    const { col, lw, baseA, step, nSteps } = opts
 
-    let px = x, py = y, cur = angle
+    for (let s = 0; s < nSteps; s++) {
+      // Smooth, damped angular drift — keeps curves gradual and organic
+      dAngle += (Math.random() - 0.5) * 0.006
+      dAngle *= 0.97
+      angle  += dAngle
 
-    for (let s = 0; s < numSteps; s++) {
-      cur += (Math.random() - 0.5) * 0.20
-      if (depth <= 2) cur += 0.014 * Math.sin(cur * 1.3) // gentle gravity sway
+      const nx = x + Math.cos(angle) * step
+      const ny = y + Math.sin(angle) * step
 
-      const nx = px + Math.cos(cur) * step
-      const ny = py + Math.sin(cur) * step
+      // Fade in quickly from the start, hold, fade out gently at the end
+      const prog  = s / nSteps
+      const alpha = baseA
+                  * Math.min(1, prog * 7)          // fast fade-in
+                  * Math.min(1, (1 - prog) * 5)    // gradual fade-out
 
-      const depthRatio = depth / maxDepth
-      const a  = (0.15 + (1 - depthRatio) * 0.42) * (0.65 + Math.random() * 0.35)
-      const lw = Math.max(0.28, (1.9 - depth * 0.22) * (0.75 + Math.random() * 0.25))
-      const col = depth % 2 === 0 ? OLIVE : BROWN
+      if (s > 0 && alpha > 0.008) {
+        segments.push({ x1: x, y1: y, x2: nx, y2: ny, a: alpha, lw, col })
+      }
 
-      segments.push({ x1: px, y1: py, x2: nx, y2: ny, a, lw, col })
-
-      px = nx; py = ny
-      if (px < -60 || px > w + 60 || py < -60 || py > h + 60) break
-    }
-
-    // Junction node
-    const ja  = 0.22 + (1 - depth / maxDepth) * 0.28
-    const jSz = Math.max(0.7, 2.2 - depth * 0.25)
-    junctions.push({ x: px, y: py, r: jSz, a: ja })
-
-    // Branching
-    const nBranch = depth === 0 ? 2 + Math.floor(Math.random() * 3)
-                  : depth < 3   ? 1 + (Math.random() < 0.60 ? 1 : 0)
-                  : depth < 5   ? (Math.random() < 0.72 ? 1 : 0)
-                  :               (Math.random() < 0.38 ? 1 : 0)
-
-    for (let b = 0; b < nBranch; b++) {
-      const spread = 0.38 + depth * 0.09
-      const ba = cur + (spread + Math.random() * 0.65) * (Math.random() < 0.5 ? 1 : -1)
-      grow(px, py, ba, depth + 1, maxDepth)
+      x = nx; y = ny
+      if (x < -w * 0.22 || x > w * 1.22 || y < -h * 0.22 || y > h * 1.22) break
     }
   }
 
-  const numRoots = 6 + Math.floor(Math.random() * 3)
-  for (let i = 0; i < numRoots; i++) {
-    const base  = (Math.PI * 2 * i / numRoots)
-    const angle = base + (Math.random() - 0.5) * 1.0
-    const ox = cx + (Math.random() - 0.5) * 50
-    const oy = cy + (Math.random() - 0.5) * 36
-    grow(ox, oy, angle, 0, 7)
+  // ── Grouped paths ──────────────────────────────────────────────────────────
+  // Each group is 2–3 paths starting close together with a shared base
+  // direction. They naturally run parallel for a while then peel apart,
+  // re-cross, or wind around each other as their dAngles diverge.
+  const numGroups = 2 + Math.floor(Math.random() * 2)
+
+  for (let g = 0; g < numGroups; g++) {
+    const gx      = w * (0.08 + Math.random() * 0.84)
+    const gy      = h * (0.08 + Math.random() * 0.84)
+    const gAngle  = Math.random() * Math.PI * 2
+    const nPaths  = 2 + Math.floor(Math.random() * 2)
+
+    for (let p = 0; p < nPaths; p++) {
+      walkPath(
+        gx + (Math.random() - 0.5) * w * 0.10,
+        gy + (Math.random() - 0.5) * h * 0.08,
+        gAngle + (Math.random() - 0.5) * 0.55,
+        {
+          col:      Math.random() < 0.55 ? OLIVE : BROWN,
+          lw:       0.5  + Math.random() * 0.7,
+          baseA:    0.20 + Math.random() * 0.22,
+          step:     2.4  + Math.random() * 1.2,
+          nSteps:   300  + Math.floor(Math.random() * 200),
+          initCurl: 0.008,
+        }
+      )
+    }
+  }
+
+  // ── Solitary wanderers ─────────────────────────────────────────────────────
+  // Independent paths that cut across the canvas from unrelated origins,
+  // adding extra crossings and keeping the layout from feeling symmetric.
+  const nLone = 1 + Math.floor(Math.random() * 2)
+  for (let i = 0; i < nLone; i++) {
+    walkPath(
+      w * (0.05 + Math.random() * 0.9),
+      h * (0.05 + Math.random() * 0.9),
+      Math.random() * Math.PI * 2,
+      {
+        col:      Math.random() < 0.5 ? OLIVE : BROWN,
+        lw:       0.4  + Math.random() * 0.5,
+        baseA:    0.14 + Math.random() * 0.16,
+        step:     2.2  + Math.random() * 1.4,
+        nSteps:   240  + Math.floor(Math.random() * 160),
+        initCurl: 0.010,
+      }
+    )
   }
 
   return { segments, junctions }
@@ -134,18 +164,20 @@ function initRhizome(canvas) {
 
   function spawnTip() {
     if (data.segments.length < 20) return
-    const startIdx = Math.floor(data.segments.length * 0.55)
-    const seg = data.segments[startIdx + Math.floor(Math.random() * (data.segments.length - startIdx))]
+    // Pick from the middle 80% — avoids the faded-end segments where alpha
+    // is near zero, so tips always sprout from a visible part of a path.
+    const lo  = Math.floor(data.segments.length * 0.10)
+    const hi  = Math.floor(data.segments.length * 0.90)
+    const seg = data.segments[lo + Math.floor(Math.random() * (hi - lo))]
     if (!seg) return
-    const angle = Math.atan2(seg.y2 - seg.y1, seg.x2 - seg.x1) + (Math.random() - 0.5) * 0.9
+    const angle = Math.atan2(seg.y2 - seg.y1, seg.x2 - seg.x1) + (Math.random() - 0.5) * 0.8
     tips.push({
       x: seg.x2, y: seg.y2,
       angle,
-      depth:   (seg.depth || 3) + 1,
-      age:     0,
-      maxAge:  50 + Math.random() * 90,
-      speed:   0.55 + Math.random() * 0.55,
-      segs:    [],
+      age:    0,
+      maxAge: 55 + Math.random() * 85,
+      speed:  0.50 + Math.random() * 0.50,
+      segs:   [],
     })
   }
 
@@ -165,11 +197,11 @@ function initRhizome(canvas) {
 
       const progress = tip.age / tip.maxAge
       if (progress < 0.65) {
-        tip.angle += (Math.random() - 0.5) * 0.14
+        tip.angle += (Math.random() - 0.5) * 0.11
         const nx = tip.x + Math.cos(tip.angle) * tip.speed
         const ny = tip.y + Math.sin(tip.angle) * tip.speed
-        const a  = (1 - progress / 0.65) * 0.28
-        const lw = Math.max(0.25, 1.1 - (tip.depth || 4) * 0.10)
+        const a  = (1 - progress / 0.65) * 0.20
+        const lw = 0.55
         tip.segs.push({ x1: tip.x, y1: tip.y, x2: nx, y2: ny, a, lw })
         tip.x = nx; tip.y = ny
         if (nx < 0 || nx > w || ny < 0 || ny > h) { tips.splice(i, 1) }
@@ -180,18 +212,6 @@ function initRhizome(canvas) {
   function draw() {
     ctx.clearRect(0, 0, w, h)
     ctx.drawImage(offscreen, 0, 0)
-
-    // Subtle breathing pulse on junction subset
-    const pulse = 0.012 * Math.sin(t * 0.75)
-    for (let i = 0; i < data.junctions.length; i += 6) {
-      const j = data.junctions[i]
-      const phase = (i / data.junctions.length) * Math.PI * 2
-      const pa = Math.max(0, j.a * 0.5 + pulse * Math.sin(phase + t * 0.5))
-      ctx.beginPath()
-      ctx.arc(j.x, j.y, j.r * 1.8, 0, Math.PI * 2)
-      ctx.fillStyle = rgba(D_OLIVE, pa)
-      ctx.fill()
-    }
 
     // Draw living tips
     for (const tip of tips) {
