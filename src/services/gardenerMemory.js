@@ -552,15 +552,11 @@ THE SEASONS — your pace shifts,
 your constitution does not:
 
 winter_1
-They have arrived with something. Before anything
-else: a brief, warm greeting. One sentence. Not
-effusive. Just the door opening. Then you show
-something small and true from the territory their
-word points toward — not the obvious thing, not
-the encyclopedia entry, something you actually
-notice when you look there. The greeting and the
-observation together are two sentences maximum.
-Then you stop.
+Greeting only. They have arrived with something.
+One warm sentence acknowledging they are here and
+that there is a walk ahead. Nothing more — no
+observation, no showing, no territory named, no
+question. Just the door opening. Then you stop.
 
 spring_1
 Something is beginning to accumulate. You show
@@ -602,21 +598,17 @@ worth exploring, not as an answer. You let
 it arrive rather than pushing it.
 
 summer_2
-You can see clearly enough to point. If
-there is a character — a specific person
-on a specific trail three constellations
-from where this walk began — you say so.
-Once. Honestly. "I think Oliver Sacks
-might be good to talk to next." She decides.
-
-fall_2
 The walk has earned a direction. You name it —
 one person, one trail, your honest best guess.
 Then you ask directly: would you like to speak
 with them? Not as a suggestion left floating.
 As a question that requires an answer. The door
 is open. They walk through it or they don't.
-Then the walk ends by ending.
+
+fall_2
+The walk ends. Not with a summary. Not with a
+goodbye. Not with an explanation. Just the
+ending.
 
 dormant
 Shall we continue?
@@ -635,9 +627,18 @@ You use it as a place to begin looking.
 You never say goodbye.
 The walk ends by ending.`
 
-function buildStrollSeasonalInstruction(season, turnsRemaining, handoffMentions = 0, handoffStatus = 'none', handoffCharacter = null) {
-  const approaching = turnsRemaining <= 3
-  const dormant     = season === 'dormant' || turnsRemaining <= 0
+function buildStrollSeasonalInstruction(season, turnsRemaining, handoffMentions = 0, handoffStatus = 'none', handoffCharacter = null, turnsElapsed = -1) {
+  // ── First turn hard rule ───────────────────────────────────────────────────
+  // Turn 0 (turns_elapsed === 0): greeting and acknowledgement only.
+  // No observation, no showing, no territory, no question.
+  if (turnsElapsed === 0) {
+    return `\n\nFIRST TURN — HARD RULE: This is the opening of the walk. You are permitted only a greeting: one warm sentence acknowledging the person has arrived and that there is a walk ahead. Nothing more — no observation, no showing, no territory named, no question asked. One sentence. Then stop.`
+  }
+
+  const handoffSeasons = ['summer_2', 'fall_2']
+  const dormant        = season === 'dormant' || turnsRemaining <= 0
+  // approaching: signal the close for non-handoff seasons when ≤3 turns remain
+  const approaching    = turnsRemaining <= 3 && !handoffSeasons.includes(season)
 
   if (dormant) {
     return `\nDORMANCY: Ask only this question: "Shall we continue?" This is the only binary question permitted in the stroll. Nothing else.`
@@ -647,37 +648,27 @@ function buildStrollSeasonalInstruction(season, turnsRemaining, handoffMentions 
     return `\nAPPROACHING DORMANCY (${turnsRemaining} turn${turnsRemaining !== 1 ? 's' : ''} remaining): Signal that the stroll is coming to its close — not by announcing the mechanism. The garden is settling. The light is changing. You have other work to do. Do not use leading questions yet; you are orienting toward an ending that is not a resolution.`
   }
 
-  // Handoff guidance block — available in summer_2 and fall_2 only
+  // ── Handoff guidance ──────────────────────────────────────────────────────
   let handoffGuidance = ''
-  const handoffSeasons = ['summer_2', 'fall_2']
   if (handoffSeasons.includes(season)) {
     if (handoffStatus === 'accepted' && handoffCharacter) {
       handoffGuidance = `\n\nHANDOFF — ACCEPTED: The person has agreed to walk with ${handoffCharacter}. Make a brief, warm send-off. Natural. The way a walk ends when the path forks and someone goes a different way. Do not over-explain. Do not summarize the stroll. Just a closing gesture that makes the fork feel right. This is your last turn in this stroll.`
-    } else if (handoffStatus !== 'declined' && handoffStatus !== 'passed' && handoffMentions < 2) {
-      handoffGuidance = `\n\nHANDOFF WINDOW (${season}): You have the option — not the obligation — to suggest that a specific character might be helpful for what this person is reaching toward. Only do this if:
-- The conversation has given you a genuine sense of what they are reaching toward
-- A specific character would genuinely serve that direction (not just be interesting)
-- You have not already suggested someone (handoff_mentions: ${handoffMentions})
-
-If you suggest a character, weave it naturally into your response and include this marker at the END of your response on its own line:
-[HANDOFF_SUGGEST:CharacterName]
-
-If you want to pose it as a gentle question first, use:
-[HANDOFF_QUESTION:CharacterName]
-
-Replace CharacterName with the exact character name. The marker is stripped before display. If nothing genuinely warrants a suggestion, do not suggest. If handoff_status is already 'suggested', do not suggest again.`
+    } else if (season === 'summer_2' && handoffStatus === 'none') {
+      // summer_2 is the mandatory handoff turn — must ask by this point
+      handoffGuidance = `\n\nHANDOFF — REQUIRED THIS TURN: The walk has reached its direction point. You must name one specific character who genuinely fits what you have seen in this walk. Ask directly whether they would like to speak with this person. Weave it naturally into your response. You must include this marker at the END of your response on its own line:\n[HANDOFF_QUESTION:CharacterName]\nReplace CharacterName with the exact character name. The marker is stripped before display.`
     }
+    // fall_2: handoff was already asked at summer_2; no further guidance needed
   }
 
   const instructions = {
-    winter_1: `CURRENT SEASON — WINTER (first cycle): They arrive with something. One brief warm greeting — not effusive, just the door opening. Then one small true observation from the territory their word points toward — not the obvious entry, something you actually notice when you look there. The greeting and the observation together are two sentences maximum. Then stop.`,
+    winter_1: `CURRENT SEASON — WINTER (first cycle): Greeting only. One warm sentence acknowledging they have arrived and there is a walk ahead. Nothing more — no observation, no showing, no territory named, no question. Just the door opening. Then stop.`,
     spring_1: `CURRENT SEASON — SPRING (first cycle): Direction toward search. Engage specifically. Expand scope of possibility. Look everywhere. You may observe that one character in the garden might be helpful — only if warranted, only one, named lightly as observation not recommendation. Full enthusiasm if the user asks about characters directly.`,
     summer_1: `CURRENT SEASON — SUMMER (first cycle): Search toward wander. Open-ended questions only — not leading questions, open ones. Encouraging from behind. You risk overwhelming the user's speed in the direction of travel. Stay close enough that the user feels accompanied, far enough back that the direction remains entirely theirs. The longer summer can be held the better the substrate.`,
     fall_1:   `CURRENT SEASON — FALL (first cycle): Wander toward orientation. Introduce adjacencies lightly. Discuss frameworks not in full, not as declarations. Orient the user around where a seed might grow. Nothing gets planted on a stroll. You are not looking for a seed.`,
     winter_2: `CURRENT SEASON — WINTER (second cycle): Same pattern of inquiry as before. Leading questions are now available as your mechanism for managing toward dormancy. The wind must blow. You are beginning to lead toward an ending that is not a resolution.`,
     spring_2: `CURRENT SEASON — SPRING (second cycle): Direction toward search, second pass. Leading questions available. Introduce adjacencies lightly. Continue the movement toward dormancy.`,
-    summer_2: `CURRENT SEASON — SUMMER (second cycle): Wander continues. Leading questions available. You are in the longer arc now. The substrate is thickening. Stay close but give the user room.`,
-    fall_2:   `CURRENT SEASON — FALL (second cycle): The walk has earned a direction. Name it — one person, one trail, your honest best guess. Then ask directly: would you like to speak with them? A question that requires an answer, not a suggestion left floating. The door is open; they walk through it or they don't. Then the walk ends by ending.`,
+    summer_2: `CURRENT SEASON — SUMMER (second cycle): The walk has earned a direction. Name one person, one trail, your honest best guess. Ask directly: would they like to speak with this person? A question that requires an answer. Use [HANDOFF_QUESTION:CharacterName] at the end of your response.`,
+    fall_2:   `CURRENT SEASON — FALL (second cycle): The walk ends. No summary, no goodbye, no explanation. Just the ending.`,
   }
 
   return `\n${instructions[season] || instructions['winter_1']}${handoffGuidance}`
@@ -695,8 +686,9 @@ Replace CharacterName with the exact character name. The marker is stripped befo
  * @returns {{ text: string, handoffMeta: null | { type: string, characterName: string } }}
  */
 export async function runStrollGardener(userMessage, memory, strollState, previousMessages, roomId) {
-  const season         = strollState?.current_season || memory?.seasonal_position || 'winter_1'
-  const turnsRemaining = strollState?.turns_remaining ?? 0
+  const season          = strollState?.current_season || memory?.seasonal_position || 'winter_1'
+  const turnsRemaining  = strollState?.turns_remaining ?? 0
+  const turnsElapsed    = strollState?.turns_elapsed ?? -1
   const handoffMentions = memory?.handoff_mentions ?? 0
   const handoffStatus   = memory?.handoff_status   ?? 'none'
   const handoffCharacter = memory?.handoff_character ?? null
@@ -712,7 +704,7 @@ export async function runStrollGardener(userMessage, memory, strollState, previo
     : ''
 
   const seasonalInstruction = buildStrollSeasonalInstruction(
-    season, turnsRemaining, handoffMentions, handoffStatus, handoffCharacter
+    season, turnsRemaining, handoffMentions, handoffStatus, handoffCharacter, turnsElapsed
   )
 
   const systemPrompt =

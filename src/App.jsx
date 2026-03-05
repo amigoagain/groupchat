@@ -296,7 +296,7 @@ export default function App() {
     const trimmed = text.trim()
     if (!trimmed) return
 
-    const STROLL_TURNS = 10
+    const STROLL_TURNS = 8
     const strollMode   = { id: 'stroll', name: 'Stroll', icon: '🌿', modeContext: '' }
 
     // Create the room
