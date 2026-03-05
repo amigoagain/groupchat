@@ -695,6 +695,46 @@ export async function runStrollGardener(userMessage, memory, strollState, previo
 
   const openingContext  = memory?.opening_context || strollState?.opening_context || null
 
+  // ── Turn 1 hard rule — bypass the full base prompt entirely ───────────────
+  // STROLL_GARDENER_BASE's "show" constitution dominates any appended rule.
+  // On the very first turn, use a minimal focused prompt: greeting only.
+  if (turnsElapsed === 0) {
+    const apiKey = getApiKey()
+    if (!apiKey) throw new Error('No API key configured')
+
+    const firstTurnPrompt =
+      `You are the Gardener — a warm, unhurried companion who walks alongside people in open conversation.\n\n` +
+      `GREETING ONLY. The person has just arrived. You may do exactly one thing: greet them warmly in a single sentence. ` +
+      `Not effusive. Not poetic. Just the door opening. ` +
+      `Do not comment on their topic. Do not make any observation. Do not show territory. Do not ask a question. ` +
+      `One sentence. Then stop.` +
+      (openingContext ? `\n\nNote: they arrived thinking about "${openingContext}". Do not reference this. Just greet them.` : '')
+
+    const firstTurnResponse = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type':                              'application/json',
+        'x-api-key':                                 apiKey,
+        'anthropic-version':                         '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model:      'claude-sonnet-4-6',
+        max_tokens: 80,
+        system:     firstTurnPrompt,
+        messages:   [{ role: 'user', content: userMessage }],
+      }),
+    })
+
+    if (!firstTurnResponse.ok) {
+      const body = await firstTurnResponse.text().catch(() => '')
+      throw new Error(`Stroll Gardener (turn 1) API ${firstTurnResponse.status}: ${body.slice(0, 200)}`)
+    }
+
+    const firstTurnData = await firstTurnResponse.json()
+    return { text: firstTurnData.content[0].text, handoffMeta: null }
+  }
+
   const ladybugContext = (memory?.ladybug_instances || []).length > 0
     ? `\nNote: ${(memory.ladybug_instances).length} ladybug instance(s) recorded in this stroll's substrate.`
     : ''
