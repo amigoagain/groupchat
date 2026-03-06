@@ -579,12 +579,23 @@ export async function getStroll2Response(
   currentUserMessage,
   dispositionLayer = '',
   signal           = null,
+  roomCharacters   = null,   // full array of characters in the room (for multi-char rooms)
 ) {
   const isFirstTurn = !previousMessages || previousMessages.filter(m => !m.isContext).length === 0
 
+  // Build room-awareness context when multiple characters are present
+  const otherChars = (roomCharacters || []).filter(c => c.id !== character.id)
+  const isGroupRoom = otherChars.length > 0
+
+  const roomContext = isGroupRoom
+    ? `You are in a group discussion. The other participants in this room are: ${
+        otherChars.map(c => `${c.name}${c.title ? ` (${c.title})` : ''}`).join(', ')
+      }. You are aware of them and may address or respond to what they say. Do not announce the room setup — the conversation is already underway.`
+    : `You are in a one-on-one conversation. This is a walk, not a lecture.`
+
   const systemPrompt =
     `${character.personality}${dispositionLayer}\n\n` +
-    `You are in a one-on-one conversation. This is a walk, not a lecture. ` +
+    `${roomContext} ` +
     `Write in natural prose. No headers, no bullet points, no markdown formatting. ` +
     `Respond as ${character.name}. Stay in your own voice and framework.` +
     (isFirstTurn

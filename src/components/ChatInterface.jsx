@@ -456,6 +456,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
             text,
             charDisposition,
             controller.signal,
+            room.characters,   // full roster so each character knows who else is present
           )
 
           if (!cancelledRef.current) {
