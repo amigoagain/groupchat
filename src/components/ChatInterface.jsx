@@ -401,59 +401,91 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
     const precedingResponses = []
 
-    // ── Stroll 2 — character is the voice (disposition layer active) ──────────
+    // ── Stroll 2 — character(s) are the voice (disposition layer active) ───────
     if (isStroll2) {
-      const stroll2Char = room.characters?.[0]
-      if (!stroll2Char) {
-        // Fallback: no character configured — treat as closed
+      const chars = room.characters || []
+      if (chars.length === 0) {
         setTypingCharacter(null)
         setIsSending(false)
         sendLockRef.current = false
         return
       }
 
-      setTypingCharacter({
-        name:    stroll2Char.name,
-        color:   stroll2Char.color || '#5a7a8a',
-        initial: (stroll2Char.name || '?')[0].toUpperCase(),
-      })
+      // Professional rooms with multiple characters: every selected character
+      // responds in turn. Single-character strolls use only the first character.
+      const isProfMulti = room.roomMode === 'professional' && chars.length > 1
+      const respondingChars = isProfMulti ? chars : [chars[0]]
 
-      try {
-        const responseText = await getStroll2Response(
-          stroll2Char,
-          conversationSnapshot,
-          text,
-          stroll2Disposition,
-          controller.signal,
-        )
+      // For multi-char professional rooms fetch the parent context once so we
+      // can build a per-character disposition layer for each respondent.
+      let profOpeningContext = ''
+      let profSpine          = ''
+      if (isProfMulti && isSupabaseConfigured && supabase && room?.parentRoomId) {
+        try {
+          const { data: mem } = await supabase
+            .from('gardener_memory')
+            .select('conversation_spine, opening_context')
+            .eq('room_id', room.parentRoomId)
+            .maybeSingle()
+          if (mem) {
+            profOpeningContext = mem.opening_context    || ''
+            profSpine          = mem.conversation_spine || ''
+          }
+        } catch {}
+      }
 
-        if (!cancelledRef.current) {
-          const charMsgPayload = {
-            type:             'character',
-            content:          responseText,
-            characterId:      stroll2Char.id,
-            characterName:    stroll2Char.name,
-            characterColor:   stroll2Char.color || '#5a7a8a',
-            characterInitial: (stroll2Char.name || '?')[0].toUpperCase(),
+      for (const stroll2Char of respondingChars) {
+        if (cancelledRef.current) break
+
+        setTypingCharacter({
+          name:    stroll2Char.name,
+          color:   stroll2Char.color || '#5a7a8a',
+          initial: (stroll2Char.name || '?')[0].toUpperCase(),
+        })
+
+        // Build a disposition layer per character for professional multi-char rooms;
+        // single-char strolls use the pre-built stroll2Disposition from state.
+        const charDisposition = isProfMulti
+          ? buildStroll2DispositionLayer(stroll2Char.name, profOpeningContext, profSpine)
+          : stroll2Disposition
+
+        try {
+          const responseText = await getStroll2Response(
+            stroll2Char,
+            conversationSnapshot,
+            text,
+            charDisposition,
+            controller.signal,
+          )
+
+          if (!cancelledRef.current) {
+            const charMsgPayload = {
+              type:             'character',
+              content:          responseText,
+              characterId:      stroll2Char.id,
+              characterName:    stroll2Char.name,
+              characterColor:   stroll2Char.color || '#5a7a8a',
+              characterInitial: (stroll2Char.name || '?')[0].toUpperCase(),
+            }
+            let savedMsg
+            if (isSupabaseConfigured && room?.id) {
+              savedMsg = await insertMessage(charMsgPayload, room.id)
+            } else {
+              savedMsg = { ...charMsgPayload, id: `s2_${Date.now()}`, timestamp: new Date().toISOString() }
+            }
+            setMessages(prev => [...prev, savedMsg])
           }
-          let savedMsg
-          if (isSupabaseConfigured && room?.id) {
-            savedMsg = await insertMessage(charMsgPayload, room.id)
-          } else {
-            savedMsg = { ...charMsgPayload, id: `s2_${Date.now()}`, timestamp: new Date().toISOString() }
+        } catch (err) {
+          if (err.name !== 'AbortError') {
+            console.error('[Stroll2] Character error:', err)
+            const errMsg = {
+              type: 'character', content: '[A moment of quiet.]',
+              characterId: stroll2Char.id, characterName: stroll2Char.name,
+              characterColor: stroll2Char.color || '#5a7a8a',
+              characterInitial: (stroll2Char.name || '?')[0].toUpperCase(), isError: true,
+            }
+            setMessages(prev => [...prev, { ...errMsg, id: `s2_err_${Date.now()}`, timestamp: new Date().toISOString() }])
           }
-          setMessages(prev => [...prev, savedMsg])
-        }
-      } catch (err) {
-        if (err.name !== 'AbortError') {
-          console.error('[Stroll2] Character error:', err)
-          const errMsg = {
-            type: 'character', content: '[The walk is quiet for a moment.]',
-            characterId: stroll2Char.id, characterName: stroll2Char.name,
-            characterColor: stroll2Char.color || '#5a7a8a',
-            characterInitial: (stroll2Char.name || '?')[0].toUpperCase(), isError: true,
-          }
-          setMessages(prev => [...prev, { ...errMsg, id: `s2_err_${Date.now()}`, timestamp: new Date().toISOString() }])
         }
       }
 

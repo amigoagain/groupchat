@@ -341,7 +341,7 @@ const MODE_EMPTY = {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, onContinueStroll, onKidsMode, initialTab = 'public', initialSection = null }) {
+export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, onContinueStroll, onKidsMode, initialTab = 'public', initialSection = null, focused = false }) {
   const { isAuthenticated, userId } = useAuth()
 
   const [activeTab,     setActiveTab]     = useState(initialTab)
@@ -510,8 +510,8 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
           </span>
         </div>
 
-        {/* Section tabs — scrollable row */}
-        <div style={{
+        {/* Section tabs — scrollable row — hidden when opened in focused mode */}
+        {!focused && <div style={{
           display:         'flex',
           gap:             0,
           borderBottom:    '1px solid rgba(107, 124, 71, 0.14)',
@@ -552,7 +552,7 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
               </button>
             )
           })}
-        </div>
+        </div>}
 
         {/* Content area — kids section gets subtle amber tint */}
         <div style={{

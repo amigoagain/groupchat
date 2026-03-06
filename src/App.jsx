@@ -64,10 +64,12 @@ export default function App() {
   const [branchFromStrollRoom, setBranchFromStrollRoom] = useState(null)
 
   // Library screen — tracks which screen to return to on back
-  const [libraryReturnScreen, setLibraryReturnScreen] = useState('weaver')
+  const [libraryReturnScreen,  setLibraryReturnScreen]  = useState('weaver')
   // Library initial tab/section — 'public' | 'private', and initial section for private
   const [libraryInitialTab,    setLibraryInitialTab]    = useState('public')
   const [libraryInitialSection, setLibraryInitialSection] = useState('my_convos')
+  // When true, hide the section nav in the library (e.g. when opening Notes or Kids directly)
+  const [libraryFocused,       setLibraryFocused]       = useState(false)
 
   // Username gate: disabled for now — name collection happens at a later point
   const [needsUsername, setNeedsUsername] = useState(false)
@@ -889,10 +891,11 @@ export default function App() {
    * @param {'public'|'private'} tab      — which tab to land on
    * @param {string}             section  — which section within private tab
    */
-  const handleOpenLibrary = (tab = 'public', section = 'my_convos') => {
+  const handleOpenLibrary = (tab = 'public', section = 'my_convos', focused = false) => {
     setLibraryReturnScreen(screen)
     setLibraryInitialTab(tab)
     setLibraryInitialSection(section)
+    setLibraryFocused(focused)
     setScreen('library')
   }
 
@@ -1003,6 +1006,7 @@ export default function App() {
           onKidsMode={handleKidsMode}
           initialTab={libraryInitialTab}
           initialSection={libraryInitialSection}
+          focused={libraryFocused}
         />
       )}
 

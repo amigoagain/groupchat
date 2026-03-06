@@ -597,7 +597,7 @@ export default function WeaverEntryScreen({
           {/* Notes — pencil (private, gated) */}
           {isAuthenticated && (
             <button
-              onClick={() => onOpenLibrary?.('private', 'notebook')}
+              onClick={() => onOpenLibrary?.('private', 'notebook', true)}
               aria-label="Notes"
               title="Notes"
               style={canvasIconBtn}
@@ -606,10 +606,10 @@ export default function WeaverEntryScreen({
             </button>
           )}
 
-          {/* Kepos for Kids — star (private, gated) */}
+          {/* Kepos for Kids — star (private, gated) — opens focused kids view */}
           {isAuthenticated && (
             <button
-              onClick={() => onOpenLibrary?.('private', 'kids')}
+              onClick={() => onOpenLibrary?.('private', 'kids', true)}
               aria-label="Kepos for Kids"
               title="Kepos for Kids"
               style={canvasIconBtn}
