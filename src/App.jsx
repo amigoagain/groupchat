@@ -558,7 +558,7 @@ export default function App() {
     if (!trimmed) return
     setShowProfessionalScreen(false)
     // Build a one-line roster to inject as branch context for the Gardener
-    const roster = chars.map(c => `${c.name}${c.title ? ` (${c.title})` : ''}`).join(', ')
+    const roster = chars.map(c => `${c.displayName || c.name}${c.title ? ` (${c.title})` : ''}`).join(', ')
     const enrichedText = trimmed  // text goes through normal entry; roster injected via branchContext
     // Reuse the entry flow — branchContext is not yet wired into handleModeEntry directly,
     // so we call it normally and let the Gardener route from the professional prompt.
@@ -956,7 +956,7 @@ export default function App() {
           Hidden in chat, weaver, loading, branch-config, and password-reset screens. */}
       {screen !== 'weaver' && screen !== 'loading' && screen !== 'chat' &&
        screen !== 'branch-config' && screen !== 'password-reset' &&
-       screen !== 'kids-coming-soon' && !needsUsername && (
+       screen !== 'kids-coming-soon' && screen !== 'library' && !needsUsername && (
         <button className="kepos-mark" onClick={handleBackToStart} title="Return to Kepos">
           kepos
         </button>
