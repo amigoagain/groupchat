@@ -330,7 +330,7 @@ const PRIVATE_SECTIONS = [
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, onContinueStroll, initialTab = 'public', initialSection = null }) {
+export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, onContinueStroll, onKidsMode, initialTab = 'public', initialSection = null }) {
   const { isAuthenticated, userId } = useAuth()
 
   const [activeTab,     setActiveTab]     = useState(initialTab)
@@ -631,6 +631,39 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
                   {s.label}
                 </button>
               ))}
+
+              {/* Kepos for Kids — opens coming soon gate */}
+              {onKidsMode && (
+                <>
+                  <div style={{
+                    height:     '1px',
+                    background: '#1e1e1e',
+                    margin:     '12px 16px',
+                  }} />
+                  <button
+                    style={{
+                      display:    'block',
+                      width:      '100%',
+                      textAlign:  'left',
+                      padding:    '8px 16px',
+                      background: 'none',
+                      border:     'none',
+                      color:      '#6b7c47',
+                      fontSize:   '13px',
+                      fontFamily: 'Georgia, serif',
+                      cursor:     'pointer',
+                      borderLeft: '2px solid transparent',
+                      lineHeight: 1.3,
+                      opacity:    0.75,
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.opacity = '1' }}
+                    onMouseLeave={e => { e.currentTarget.style.opacity = '0.75' }}
+                    onClick={() => { if (isMobile) setSidebarOpen(false); onKidsMode() }}
+                  >
+                    Kepos for Kids
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Public content */}

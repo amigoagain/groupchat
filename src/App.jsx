@@ -12,6 +12,7 @@ import BranchConfig from './components/BranchConfig.jsx'
 import WeaverEntryScreen from './components/WeaverEntryScreen.jsx'
 import StrollConfig from './components/StrollConfig.jsx'
 import LibraryScreen from './components/LibraryScreen.jsx'
+import KidsComingSoonScreen from './components/KidsComingSoonScreen.jsx'
 // GraphScreen (force-graph) is preserved for V2 but loaded lazily to keep it off
 // the critical-path bundle (react-force-graph pulls in aframe which requires a
 // global AFRAME object that isn't present in our Vite ESM build).
@@ -623,6 +624,129 @@ export default function App() {
   }
 
   /**
+   * Open the Kepos for Kids coming-soon gate from the public library.
+   */
+  const handleKidsMode = () => {
+    setScreen('kids-coming-soon')
+  }
+
+  /**
+   * Called when a parent/teacher taps the walking figure on KidsComingSoonScreen.
+   * Creates a kids stroll room (is_kids_mode: true, 8 turns, gardener_only),
+   * gets a warm Gardener greeting, and navigates straight into the stroll.
+   */
+  const handleKidsEntry = async () => {
+    const STROLL_TURNS = 8
+    const strollMode   = { id: 'stroll', name: 'Stroll', icon: '🌿', modeContext: '' }
+
+    // Create the room
+    const room = await createRoom(
+      strollMode,
+      [],
+      displayName,
+      isAuthenticated ? userId : null,
+      'private',
+      null,
+    )
+
+    // Tag it as a kids stroll
+    if (room.id && supabase) {
+      try {
+        await supabase.from('rooms').update({
+          room_mode:         'stroll',
+          stroll_type:       'gardener_only',
+          stroll_turn_count: STROLL_TURNS,
+          is_kids_mode:      true,
+        }).eq('id', room.id)
+      } catch {}
+    }
+
+    await gooseHonk1(room.id, STROLL_TURNS)
+    await initStrollState(room.id, STROLL_TURNS, null, 'gardener_only', '', null)
+    await fetchOrCreateMemory(room.id)
+
+    if (supabase && room.id) {
+      try {
+        await supabase.from('gardener_memory').upsert(
+          {
+            room_id:           room.id,
+            stroll_mode:       true,
+            handoff_mentions:  0,
+            handoff_character: null,
+            handoff_status:    'none',
+            opening_context:   '',
+            updated_at:        new Date().toISOString(),
+          },
+          { onConflict: 'room_id' }
+        )
+      } catch {}
+    }
+
+    const initialStrollState = {
+      room_id:           room.id,
+      turn_count_total:  STROLL_TURNS,
+      turn_count_chosen: STROLL_TURNS,
+      turns_elapsed:     0,
+      turns_remaining:   STROLL_TURNS,
+      current_season:    'winter_1',
+      season_cycle:      1,
+      opening_context:   '',
+    }
+
+    const initialMemory = {
+      stroll_mode:       true,
+      opening_context:   '',
+      handoff_mentions:  0,
+      handoff_status:    'none',
+      handoff_character: null,
+      ladybug_instances: [],
+    }
+
+    // Get the Gardener's warm kids greeting (turn 0 — no user message in DB)
+    try {
+      const { text: greeting } = await runStrollGardener(
+        'hello',
+        initialMemory,
+        initialStrollState,
+        [],
+        room.id,
+        true, // isKidsMode
+      )
+
+      const greetingPayload = {
+        type:             'character',
+        content:          greeting,
+        characterId:      'gardener',
+        characterName:    'Gardener',
+        characterColor:   '#6b7c47',
+        characterInitial: 'G',
+      }
+
+      if (isSupabaseConfigured && room.id) {
+        await insertMessage(greetingPayload, room.id)
+      }
+
+      await incrementStrollTurn(room.id, initialStrollState)
+    } catch (err) {
+      console.error('[KidsEntry] Gardener init error:', err)
+    }
+
+    const kidsRoom = {
+      ...room,
+      mode:              strollMode,
+      roomMode:          'stroll',
+      strollType:        'gardener_only',
+      stroll_turn_count: STROLL_TURNS,
+      isKidsMode:        true,
+    }
+
+    setCurrentRoom(kidsRoom)
+    markRoomVisited(room.code)
+    navigate(`/room/${room.code}`, { replace: true })
+    setScreen('chat')
+  }
+
+  /**
    * Open the Library full-screen view from any screen.
    * Saves current screen so back navigation can restore it.
    * @param {'public'|'private'} tab      — which tab to land on
@@ -694,7 +818,8 @@ export default function App() {
       {/* Persistent Kepos mark — tap to return to entry screen.
           Hidden in chat, weaver, loading, branch-config, and password-reset screens. */}
       {screen !== 'weaver' && screen !== 'loading' && screen !== 'chat' &&
-       screen !== 'branch-config' && screen !== 'password-reset' && !needsUsername && (
+       screen !== 'branch-config' && screen !== 'password-reset' &&
+       screen !== 'kids-coming-soon' && !needsUsername && (
         <button className="kepos-mark" onClick={handleBackToStart} title="Return to Kepos">
           kepos
         </button>
@@ -738,8 +863,16 @@ export default function App() {
           onOpenRoom={handleOpenRoom}
           onOpenBranchConfig={handleOpenBranchConfig}
           onContinueStroll={handleContinueStroll}
+          onKidsMode={handleKidsMode}
           initialTab={libraryInitialTab}
           initialSection={libraryInitialSection}
+        />
+      )}
+
+      {screen === 'kids-coming-soon' && (
+        <KidsComingSoonScreen
+          onBack={() => setScreen('library')}
+          onEnter={handleKidsEntry}
         />
       )}
 

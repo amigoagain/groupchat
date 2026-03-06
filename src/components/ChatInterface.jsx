@@ -517,7 +517,8 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
       setTypingCharacter({ name: 'Gardener', color: '#6b7c47', initial: 'G' })
       try {
         const { text: responseText, handoffMeta } = await runStrollGardener(
-          text, memory, currentStrollState, conversationSnapshot, room.id
+          text, memory, currentStrollState, conversationSnapshot, room.id,
+          room.isKidsMode === true
         )
 
         if (!cancelledRef.current) {
@@ -923,7 +924,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   const modeLabel = room.mode?.name || 'Chat'
 
   return (
-    <div className={`chat-screen${selectionMode ? ' selection-mode' : ''}${strollFading ? ' stroll-fade-out' : ''}`}>
+    <div className={`chat-screen${selectionMode ? ' selection-mode' : ''}${strollFading ? ' stroll-fade-out' : ''}${room.isKidsMode ? ' chat-screen--kids' : ''}`}>
 
       {/* ── Floating header overlay ── */}
       <div className="chat-float-header">

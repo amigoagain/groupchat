@@ -6389,6 +6389,61 @@ input {
 }
 
 /* ============================================================
+   KEPOS FOR KIDS — Stroll room visual treatment
+   Applied via .chat-screen--kids on the root chat container.
+   Warmer background, rounder bubbles, Georgia serif, larger text.
+   ============================================================ */
+
+.chat-screen--kids .chat-messages {
+  background: #f7f3ec;
+}
+
+/* Character (Gardener) bubble — warmer, rounder, serif */
+.chat-screen--kids .message-character-bubble {
+  background:     #f0ebe0;
+  border:         1px solid rgba(107, 124, 71, 0.18);
+  border-left:    3px solid var(--char-color, #6b7c47);
+  border-radius:  6px var(--radius-xl) var(--radius-xl) var(--radius-xl);
+  font-family:    Georgia, serif;
+  font-size:      16px;
+  line-height:    1.75;
+  color:          #3a3228;
+}
+
+/* User bubble — softer, rounder */
+.chat-screen--kids .message-user-bubble {
+  background:     #5a6b2e;
+  border-radius:  var(--radius-xl) var(--radius-xl) 6px var(--radius-xl);
+  font-family:    Georgia, serif;
+  font-size:      16px;
+  line-height:    1.6;
+}
+
+/* Character name label */
+.chat-screen--kids .message-character-name {
+  font-family:    Georgia, serif;
+  font-size:      13px;
+  color:          #6b7c47;
+}
+
+/* Input area — same warm background */
+.chat-screen--kids .chat-input-area {
+  background: #ede8df;
+  border-top: 1px solid rgba(107, 124, 71, 0.18);
+}
+
+.chat-screen--kids .chat-input-wrapper {
+  background:    #f5f0e8;
+  border-color:  rgba(107, 124, 71, 0.22);
+  border-radius: var(--radius-xl);
+}
+
+.chat-screen--kids .chat-textarea {
+  font-family: Georgia, serif;
+  font-size:   16px;
+}
+
+/* ============================================================
    KEPOS ENTRY — Placeholder CSS (hamburger + drawer in WeaverEntryScreen
    are fully inline-styled; these selectors are provided as hooks
    for future override if needed)

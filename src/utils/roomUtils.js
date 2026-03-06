@@ -56,7 +56,9 @@ export function rowToRoom(data) {
     foundingContext:     data.founding_context || null,
     dormantAt:           data.dormant_at || null,
     roomMode:            data.room_mode || null,
+    strollType:          data.stroll_type || null,
     strollTurnCount:     data.stroll_turn_count || null,
+    isKidsMode:          Boolean(data.is_kids_mode),
   }
 }
 
