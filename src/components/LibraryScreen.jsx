@@ -311,7 +311,12 @@ const PUBLIC_SECTIONS = [
 ]
 
 const PRIVATE_SECTIONS = [
-  { id: 'kids', label: 'Kepos for Kids', kids: true },
+  { id: 'convos',      label: 'Conversations' },
+  { id: 'discussions', label: 'Discussions' },
+  { id: 'research',    label: 'Research' },
+  { id: 'work',        label: 'Work' },
+  { id: 'kids',        label: 'Kepos for Kids', kids: true },
+  { id: 'notebook',    label: 'Notes' },
 ]
 
 // Sections that show filtered user rooms
