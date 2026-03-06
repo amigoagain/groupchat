@@ -76,6 +76,16 @@ export default function App() {
     ? (authUsername || getUsername() || 'User')
     : (getUsername() || 'Guest')
 
+  // ── Professional mode gate ────────────────────────────────────────────────
+  const isProfessionalUnlocked =
+    (userId && userId === import.meta.env.VITE_DEV_USER_ID) ||
+    (userId && userId === import.meta.env.VITE_PERSONAL_USER_ID)
+
+  // Console log session UUID so the professional gate can be configured
+  useEffect(() => {
+    if (userId) console.log('[Kepos] Session user UUID:', userId)
+  }, [userId])
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   const loadAndEnterRoom = async (code) => {
     setScreen('loading')
@@ -237,22 +247,15 @@ export default function App() {
    * context (with isContext flag so they don't trigger AI responses),
    * then navigates into the new room.
    *
-   * @param {{ selectedChars, roomName, visibility, branchData }} config
+   * @param {{ mode, branchText, selectedChars, branchData }} config
    */
-  const handleBranchConfirm = async ({ selectedChars, roomName, visibility, branchData }) => {
-    const room = await createRoom(
-      selectedMode || { id: 'discuss', name: 'Discuss', icon: '🗣', modeContext: '' },
-      selectedChars,
-      displayName,
-      isAuthenticated ? userId : null,
-      visibility,
-      branchData,
-    )
+  const handleBranchConfirm = async ({ mode, branchText, selectedChars, branchData }) => {
+    const GARDENER_BRANCH_MODES = ['stroll', 'thinking']
+    const parentCode = currentRoom?.code || null
 
-    // Insert the founding messages as visible context at the top of the new room.
-    // metadata.isContext = true prevents them from being included in AI conversation history.
-    if (branchData?.foundingContext?.length > 0 && room.id) {
-      const parentCode = currentRoom?.code || null
+    // Helper: insert founding messages as visible context
+    const insertFoundingCtx = async (roomId) => {
+      if (!branchData?.foundingContext?.length || !roomId) return
       const ctxMsgs = branchData.foundingContext.map(m => ({
         type:             m.sender_type === 'character' ? 'character' : 'user',
         content:          m.content,
@@ -265,14 +268,86 @@ export default function App() {
         isError:          false,
         metadata:         { isContext: true, fromRoomCode: parentCode },
       }))
-      await insertMessages(ctxMsgs, room.id)
+      await insertMessages(ctxMsgs, roomId)
     }
 
-    setBranchConfigData(null)
-    setCurrentRoom(room)
-    markRoomVisited(room.code)
-    navigate(`/room/${room.code}`, { replace: true })
-    setScreen('chat')
+    if (GARDENER_BRANCH_MODES.includes(mode)) {
+      // ── Stroll / Thinking branch → Gardener-only room with branch context ──
+      const TURN_COUNTS = { stroll: 8, thinking: 8 }
+      const STROLL_TURNS = TURN_COUNTS[mode] || 8
+      const branchMode   = { id: mode, name: mode.charAt(0).toUpperCase() + mode.slice(1), icon: '🌿', modeContext: '' }
+
+      const room = await createRoom(branchMode, [], displayName, isAuthenticated ? userId : null, 'private', branchData)
+
+      if (room.id && supabase) {
+        try {
+          await supabase.from('rooms').update({
+            room_mode:         mode,
+            stroll_type:       'gardener_only',
+            stroll_turn_count: STROLL_TURNS,
+          }).eq('id', room.id)
+        } catch {}
+      }
+
+      await gooseHonk1(room.id, STROLL_TURNS)
+
+      const openingCtx = branchText?.trim() || ''
+      await initStrollState(room.id, STROLL_TURNS, null, 'gardener_only', openingCtx, null)
+      await fetchOrCreateMemory(room.id)
+
+      if (supabase && room.id) {
+        try {
+          await supabase.from('gardener_memory').upsert(
+            { room_id: room.id, stroll_mode: true, handoff_mentions: 0, handoff_character: null, handoff_status: 'none', opening_context: openingCtx, updated_at: new Date().toISOString() },
+            { onConflict: 'room_id' }
+          )
+        } catch {}
+      }
+
+      await insertFoundingCtx(room.id)
+
+      // Build branchContext string passed to Gardener system prompt
+      const branchContextStr = branchData?.foundingContext?.length
+        ? branchData.foundingContext.map(m => `${m.characterName || m.sender_name || 'User'}: ${m.content}`).join('\n')
+        : null
+
+      const senderName = isAuthenticated ? (authUsername || getUsername() || 'User') : (getUsername() || 'Guest')
+      if (openingCtx && isSupabaseConfigured && room.id) {
+        await insertMessage({ type: 'user', content: openingCtx, senderName, userId: userId || null }, room.id)
+      }
+
+      const initialStrollState = { room_id: room.id, turn_count_total: STROLL_TURNS, turn_count_chosen: STROLL_TURNS, turns_elapsed: 0, turns_remaining: STROLL_TURNS, current_season: 'winter_1', season_cycle: 1, opening_context: openingCtx }
+      const initialMemory      = { stroll_mode: true, opening_context: openingCtx, handoff_mentions: 0, handoff_status: 'none', handoff_character: null, ladybug_instances: [] }
+
+      try {
+        const { text: gardenerResponse } = await runStrollGardener(
+          openingCtx || '[branch opened]', initialMemory, initialStrollState, [], room.id, false, mode, branchContextStr
+        )
+        if (isSupabaseConfigured && room.id) {
+          await insertMessage({ type: 'character', content: gardenerResponse, characterId: 'gardener', characterName: 'Gardener', characterColor: '#6b7c47', characterInitial: 'G' }, room.id)
+        }
+        await incrementStrollTurn(room.id, initialStrollState)
+      } catch (err) {
+        console.error('[Branch] Gardener init error:', err)
+      }
+
+      setBranchConfigData(null)
+      setCurrentRoom({ ...room, mode: branchMode, roomMode: mode, strollType: 'gardener_only', stroll_turn_count: STROLL_TURNS })
+      markRoomVisited(room.code)
+      navigate(`/room/${room.code}`, { replace: true })
+      setScreen('chat')
+
+    } else {
+      // ── Research / Professional branch → room with selected characters ──
+      const branchMode = { id: mode, name: mode.charAt(0).toUpperCase() + mode.slice(1), icon: '🗣', modeContext: '' }
+      const room = await createRoom(branchMode, selectedChars, displayName, isAuthenticated ? userId : null, 'private', branchData)
+      await insertFoundingCtx(room.id)
+      setBranchConfigData(null)
+      setCurrentRoom(room)
+      markRoomVisited(room.code)
+      navigate(`/room/${room.code}`, { replace: true })
+      setScreen('chat')
+    }
   }
 
   const handleUpdateRoom = (updatedRoom) => setCurrentRoom(updatedRoom)
@@ -292,18 +367,20 @@ export default function App() {
   }
 
   /**
-   * Called by WeaverEntryScreen when user submits a question from the entry input bar.
-   * Creates a 10-turn gardener_only stroll room, inserts the user's message and first
-   * Gardener response, then navigates into the stroll dialogue.
+   * Called by WeaverEntryScreen when user submits from any mode icon.
+   * Creates a gardener_only room for the selected mode, inserts the user's message
+   * and first Gardener response, then navigates into the dialogue.
    *
+   * @param {'stroll'|'thinking'|'research'|'professional'} mode
    * @param {string} text — the user's opening question/curiosity
    */
-  const handleEntrySubmit = async (text) => {
+  const handleModeEntry = async (mode, text) => {
     const trimmed = text.trim()
     if (!trimmed) return
 
-    const STROLL_TURNS = 8
-    const strollMode   = { id: 'stroll', name: 'Stroll', icon: '🌿', modeContext: '' }
+    const TURN_COUNTS = { stroll: 8, thinking: 8, research: 6, professional: 4 }
+    const STROLL_TURNS = TURN_COUNTS[mode] || 8
+    const strollMode   = { id: mode, name: mode.charAt(0).toUpperCase() + mode.slice(1), icon: '🌿', modeContext: '' }
 
     // Create the room
     const room = await createRoom(
@@ -319,7 +396,7 @@ export default function App() {
     if (room.id && supabase) {
       try {
         await supabase.from('rooms').update({
-          room_mode:         'stroll',
+          room_mode:         mode,
           stroll_type:       'gardener_only',
           stroll_turn_count: STROLL_TURNS,
         }).eq('id', room.id)
@@ -396,6 +473,8 @@ export default function App() {
         initialStrollState,
         [],
         room.id,
+        false,  // isKidsMode
+        mode,   // gardener mode
       )
 
       const strollMsgPayload = {
@@ -414,15 +493,15 @@ export default function App() {
       // Increment stroll turn after Gardener responds
       await incrementStrollTurn(room.id, initialStrollState)
     } catch (err) {
-      console.error('[Entry] Gardener init error:', err)
+      console.error('[ModeEntry] Gardener init error:', err)
       // Still navigate — user can see the empty room and type
     }
 
-    // Navigate into stroll
+    // Navigate into room
     const strollRoom = {
       ...room,
       mode:             strollMode,
-      roomMode:         'stroll',
+      roomMode:         mode,
       strollType:       'gardener_only',
       stroll_turn_count: STROLL_TURNS,
     }
@@ -878,11 +957,12 @@ export default function App() {
 
       {screen === 'weaver' && (
         <WeaverEntryScreen
-          onEntrySubmit={handleEntrySubmit}
+          onModeEntry={handleModeEntry}
           onOpenLibrary={handleOpenLibrary}
           onSignIn={() => handleSignIn()}
           onStartRoom={handleStartRoom}
           onOpenRoom={handleOpenRoom}
+          isProfessionalUnlocked={isProfessionalUnlocked}
         />
       )}
 
@@ -930,7 +1010,7 @@ export default function App() {
           parentRoomId={branchConfigData.parentRoomId}
           branchedAtSequence={branchConfigData.branchedAtSequence}
           branchDepth={branchConfigData.branchDepth}
-          parentCharacters={branchConfigData.parentCharacters || []}
+          isProfessionalUnlocked={isProfessionalUnlocked}
           onConfirm={handleBranchConfirm}
           onCancel={() => setScreen(currentRoom ? 'chat' : 'weaver')}
         />

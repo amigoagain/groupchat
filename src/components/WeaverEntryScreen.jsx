@@ -5,7 +5,9 @@
  *   1. Canvas (flex 1): rhizome animation fills everything above input bar.
  *      Header is a transparent absolute overlay inside this layer so the
  *      canvas runs edge-to-edge and through the top bar area.
- *   2. Input bar (auto): frosted-glass pill at bottom.
+ *   2. Bottom bar (auto): mode icon row + expansion panel.
+ *      Tapping an icon expands a textarea above the row for that mode.
+ *      Other icons recede. Send creates a room in the selected mode.
  *
  * Keyboard handling: rootH tracks visualViewport.height so layout
  * fills exactly the visible area above the iOS keyboard. rootY tracks
@@ -270,20 +272,90 @@ function initRhizome(canvas) {
   }
 }
 
+// ── Mode icon SVGs ─────────────────────────────────────────────────────────────
+
+const ICON_PROPS = {
+  width:           '20',
+  height:          '23',
+  viewBox:         '0 0 14 16',
+  fill:            'none',
+  stroke:          'currentColor',
+  strokeWidth:     '1.5',
+  strokeLinecap:   'round',
+  strokeLinejoin:  'round',
+}
+
+function ModeIcon({ id }) {
+  switch (id) {
+    case 'stroll': return (
+      <svg {...ICON_PROPS}>
+        {/* Walking figure — side profile, mid-stride */}
+        <circle cx="9" cy="2" r="1.5" />
+        <line x1="8.5" y1="3.5"  x2="7.5" y2="8"   />
+        <line x1="8"   y1="5.5"  x2="11"  y2="7.5"  />
+        <line x1="8"   y1="5.5"  x2="5.5" y2="6.5"  />
+        <line x1="7.5" y1="8"    x2="10"  y2="13"   />
+        <line x1="7.5" y1="8"    x2="5"   y2="12"   />
+      </svg>
+    )
+
+    case 'thinking': return (
+      <svg {...ICON_PROPS}>
+        {/* Head with ascending thought-bubble chain */}
+        <circle cx="6.5" cy="12" r="3" />
+        <circle cx="7.5" cy="7.5" r="1.5" />
+        <circle cx="9" cy="4.5" r="1" strokeWidth="1" />
+        <circle cx="10.5" cy="2.5" r="0.7" fill="currentColor" stroke="none" />
+      </svg>
+    )
+
+    case 'research': return (
+      <svg {...ICON_PROPS}>
+        {/* Magnifying glass */}
+        <circle cx="5.5" cy="5.5" r="4.5" />
+        <line x1="8.7" y1="9" x2="13" y2="14" />
+      </svg>
+    )
+
+    case 'professional': return (
+      <svg {...ICON_PROPS}>
+        {/* Briefcase */}
+        <rect x="1" y="5.5" width="12" height="8.5" rx="1.5" />
+        <path d="M5 5.5 V4 Q5 2.5 7 2.5 Q9 2.5 9 4 V5.5" />
+        <line x1="1" y1="9.5" x2="13" y2="9.5" />
+      </svg>
+    )
+
+    default: return null
+  }
+}
+
+// ── Mode config ────────────────────────────────────────────────────────────────
+
+const MODES_CONFIG = [
+  { id: 'stroll',       label: 'Stroll',   placeholder: 'What are you curious about?'       },
+  { id: 'thinking',     label: 'Thinking', placeholder: 'What are you working through?'      },
+  { id: 'research',     label: 'Research', placeholder: 'What are you trying to understand?' },
+  { id: 'professional', label: 'Work',     placeholder: 'What do you need to think through?' },
+]
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function WeaverEntryScreen({
-  onEntrySubmit,
+  onModeEntry,
   onOpenLibrary,
   onSignIn,
   onStartRoom,
   onOpenRoom,
+  isProfessionalUnlocked,
 }) {
   const { isAuthenticated, username } = useAuth()
 
+  const [activeMode,   setActiveMode]   = useState(null)
   const [inputText,    setInputText]    = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [menuOpen,     setMenuOpen]     = useState(false)
+  const [labelVisible, setLabelVisible] = useState(null)
 
   // rootH/rootY track the visual viewport so the layout fills exactly the
   // visible area above the keyboard on iOS Safari.
@@ -291,8 +363,9 @@ export default function WeaverEntryScreen({
   const [rootY, setRootY] = useState(0)
 
   const canvasRef        = useRef(null)
-  const inputRef         = useRef(null)
   const canvasWrapperRef = useRef(null)
+  const textareaRef      = useRef(null)
+  const longPressTimer   = useRef(null)
 
   // Lock html/body scroll while entry screen is mounted.
   useEffect(() => {
@@ -327,7 +400,7 @@ export default function WeaverEntryScreen({
     }
   }, [])
 
-  // Canvas rhizome — init after layout so canvas.offsetWidth/Height are valid
+  // Canvas rhizome — init after layout so canvas.offsetWidth/Height are valid.
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -343,16 +416,36 @@ export default function WeaverEntryScreen({
     return () => { wrapper.removeEventListener('touchmove', preventScroll) }
   }, [])
 
+  // Auto-focus textarea when a mode becomes active.
+  useEffect(() => {
+    if (activeMode && textareaRef.current) {
+      const t = setTimeout(() => textareaRef.current?.focus(), 50)
+      return () => clearTimeout(t)
+    }
+  }, [activeMode])
+
+  const handleIconClick = (modeId) => {
+    if (modeId === 'professional' && !isProfessionalUnlocked) return
+    if (activeMode === modeId) {
+      // Tap active icon again to collapse
+      setActiveMode(null)
+      setInputText('')
+    } else {
+      setActiveMode(modeId)
+      setInputText('')
+    }
+  }
+
   const handleSubmit = async () => {
     const text = inputText.trim()
-    if (!text || isSubmitting) return
+    if (!text || isSubmitting || !activeMode) return
     setIsSubmitting(true)
-    setInputText('')
-    if (inputRef.current) inputRef.current.style.height = 'auto'
     try {
-      await onEntrySubmit(text)
+      await onModeEntry(activeMode, text)
     } finally {
       setIsSubmitting(false)
+      setInputText('')
+      setActiveMode(null)
     }
   }
 
@@ -361,6 +454,10 @@ export default function WeaverEntryScreen({
       e.preventDefault()
       handleSubmit()
     }
+    if (e.key === 'Escape') {
+      setActiveMode(null)
+      setInputText('')
+    }
   }
 
   const handleTextareaChange = (e) => {
@@ -368,6 +465,15 @@ export default function WeaverEntryScreen({
     const el = e.target
     el.style.height = 'auto'
     el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+  }
+
+  // Long-press for mobile label reveal (400 ms threshold).
+  const handleIconTouchStart = (modeId) => {
+    longPressTimer.current = setTimeout(() => setLabelVisible(modeId), 400)
+  }
+  const handleIconTouchEnd = () => {
+    clearTimeout(longPressTimer.current)
+    setTimeout(() => setLabelVisible(null), 1000)
   }
 
   // ── Menu items ─────────────────────────────────────────────────────────────
@@ -404,6 +510,8 @@ export default function WeaverEntryScreen({
     boxShadow:            '0 2px 14px rgba(0,0,0,0.10)',
     transition:           'background 0.15s, color 0.15s',
   }
+
+  const activeModeConfig = MODES_CONFIG.find(m => m.id === activeMode)
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -446,19 +554,19 @@ export default function WeaverEntryScreen({
 
         {/* ── Header overlay — transparent, floats above canvas ── */}
         <div style={{
-          position:      'absolute',
-          top:           0,
-          left:          0,
-          right:         0,
-          paddingTop:    'env(safe-area-inset-top, 0px)',
-          height:        'calc(52px + env(safe-area-inset-top, 0px))',
-          display:       'flex',
-          alignItems:    'flex-end',
-          justifyContent:'flex-end',
-          paddingRight:  '10px',
-          paddingBottom: '8px',
-          zIndex:        10,
-          boxSizing:     'border-box',
+          position:       'absolute',
+          top:            0,
+          left:           0,
+          right:          0,
+          paddingTop:     'env(safe-area-inset-top, 0px)',
+          height:         'calc(52px + env(safe-area-inset-top, 0px))',
+          display:        'flex',
+          alignItems:     'flex-end',
+          justifyContent: 'flex-end',
+          paddingRight:   '10px',
+          paddingBottom:  '8px',
+          zIndex:         10,
+          boxSizing:      'border-box',
           // No background — canvas shows through
         }}>
           {/* Menu trigger — three thin lines */}
@@ -486,18 +594,18 @@ export default function WeaverEntryScreen({
         {/* ── Pill menu — slides down from header ── */}
         {/* Always mounted so the transition plays on close */}
         <div style={{
-          position:      'absolute',
-          top:           'calc(48px + env(safe-area-inset-top, 0px))',
-          left:          0,
-          right:         0,
-          zIndex:        20,
-          display:       'flex',
-          flexDirection: 'column',
-          alignItems:    'center',
-          opacity:       menuOpen ? 1 : 0,
-          transform:     menuOpen ? 'translateY(0px)' : 'translateY(-10px)',
-          pointerEvents: menuOpen ? 'auto' : 'none',
-          transition:    'opacity 0.20s ease, transform 0.20s ease',
+          position:       'absolute',
+          top:            'calc(48px + env(safe-area-inset-top, 0px))',
+          left:           0,
+          right:          0,
+          zIndex:         20,
+          display:        'flex',
+          flexDirection:  'column',
+          alignItems:     'center',
+          opacity:        menuOpen ? 1 : 0,
+          transform:      menuOpen ? 'translateY(0px)' : 'translateY(-10px)',
+          pointerEvents:  menuOpen ? 'auto' : 'none',
+          transition:     'opacity 0.20s ease, transform 0.20s ease',
         }}>
           {/* Invisible backdrop — tap anywhere outside pills to close */}
           <div
@@ -511,10 +619,10 @@ export default function WeaverEntryScreen({
 
           {/* Pill row */}
           <div style={{
-            display:    'flex',
-            gap:        '8px',
-            padding:    '0 16px',
-            flexWrap:   'wrap',
+            display:        'flex',
+            gap:            '8px',
+            padding:        '0 16px',
+            flexWrap:       'wrap',
             justifyContent: 'center',
           }}>
             {menuItems.map(item => (
@@ -534,17 +642,18 @@ export default function WeaverEntryScreen({
       </div>
       {/* end canvas layer */}
 
-      {/* ── Input bar layer ── */}
+      {/* ── Expansion panel — slides up when a mode is active ── */}
       <div style={{
-        flexShrink:    0,
-        paddingBottom: 'max(12px, env(safe-area-inset-bottom))',
-        paddingTop:    '8px',
+        flexShrink:  0,
+        overflow:    'hidden',
+        maxHeight:   activeMode ? '180px' : '0px',
+        opacity:     activeMode ? 1 : 0,
+        paddingTop:  activeMode ? '8px' : '0',
+        paddingLeft: '20px',
+        paddingRight:'20px',
+        transition:  'max-height 0.28s ease, opacity 0.22s ease, padding-top 0.28s ease',
       }}>
-        <div style={{
-          maxWidth: '520px',
-          margin:   '0 auto',
-          padding:  '0 20px',
-        }}>
+        <div style={{ maxWidth: '520px', margin: '0 auto' }}>
           {/* Frosted-glass pill */}
           <div style={{
             display:              'flex',
@@ -559,12 +668,12 @@ export default function WeaverEntryScreen({
             boxShadow:            '0 2px 16px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)',
           }}>
             <textarea
-              ref={inputRef}
+              ref={textareaRef}
               className="entry-textarea"
               value={inputText}
               onChange={handleTextareaChange}
               onKeyDown={handleKeyDown}
-              placeholder="what are you curious about?"
+              placeholder={activeModeConfig?.placeholder ?? ''}
               disabled={isSubmitting}
               rows={1}
               style={{
@@ -573,7 +682,6 @@ export default function WeaverEntryScreen({
                 border:     'none',
                 outline:    'none',
                 resize:     'none',
-                // Green throughout — matches the resting placeholder color
                 color:      '#4a5830',
                 fontFamily: 'Georgia, serif',
                 fontSize:   '16px',  // 16px: prevents iOS auto-zoom on focus
@@ -613,22 +721,88 @@ export default function WeaverEntryScreen({
                   stroke="currentColor" strokeWidth="1.5"
                   strokeLinecap="round" strokeLinejoin="round"
                 >
-                  {/* Head */}
                   <circle cx="9" cy="2" r="1.5" />
-                  {/* Torso */}
                   <line x1="8.5" y1="3.5" x2="7.5" y2="8" />
-                  {/* Leading arm (forward) */}
                   <line x1="8"   y1="5.5" x2="11"  y2="7.5" />
-                  {/* Trailing arm (back) */}
                   <line x1="8"   y1="5.5" x2="5.5" y2="6.5" />
-                  {/* Leading leg (forward, down) */}
                   <line x1="7.5" y1="8"   x2="10"  y2="13" />
-                  {/* Trailing leg (back) */}
                   <line x1="7.5" y1="8"   x2="5"   y2="12" />
                 </svg>
               )}
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* ── Mode icons row ── */}
+      <div style={{
+        flexShrink:    0,
+        paddingTop:    '10px',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+      }}>
+        <div style={{
+          display:        'flex',
+          justifyContent: 'center',
+          gap:            '12px',
+          padding:        '0 20px',
+        }}>
+          {MODES_CONFIG.map(mode => {
+            const isGated   = mode.id === 'professional' && !isProfessionalUnlocked
+            const isActive  = activeMode === mode.id
+            const isReceded = activeMode !== null && !isActive
+
+            return (
+              <button
+                key={mode.id}
+                onClick={() => handleIconClick(mode.id)}
+                onMouseEnter={() => !isGated && setLabelVisible(mode.id)}
+                onMouseLeave={() => setLabelVisible(null)}
+                onTouchStart={() => handleIconTouchStart(mode.id)}
+                onTouchEnd={handleIconTouchEnd}
+                disabled={isGated}
+                aria-label={mode.label}
+                style={{
+                  width:                '64px',
+                  height:               '70px',
+                  display:              'flex',
+                  flexDirection:        'column',
+                  alignItems:           'center',
+                  justifyContent:       'center',
+                  gap:                  '5px',
+                  background:           isActive
+                                          ? 'rgba(74, 90, 36, 0.15)'
+                                          : 'rgba(245, 241, 234, 0.72)',
+                  WebkitBackdropFilter: 'blur(10px)',
+                  backdropFilter:       'blur(10px)',
+                  border:               isActive
+                                          ? '1px solid rgba(107, 124, 71, 0.38)'
+                                          : '1px solid rgba(107, 124, 71, 0.16)',
+                  borderRadius:         '16px',
+                  cursor:               isGated ? 'not-allowed' : 'pointer',
+                  transition:           'background 0.18s, border 0.18s, opacity 0.20s, transform 0.20s, filter 0.18s',
+                  opacity:              isGated ? 0.25 : isReceded ? 0.32 : 1,
+                  transform:            isReceded ? 'scale(0.87)' : 'scale(1)',
+                  filter:               isGated ? 'grayscale(1)' : 'none',
+                  color:                '#4a5830',
+                  padding:              0,
+                }}
+              >
+                <ModeIcon id={mode.id} />
+                <span style={{
+                  fontSize:      '10px',
+                  fontFamily:    'Georgia, serif',
+                  color:         '#4a5830',
+                  opacity:       labelVisible === mode.id ? 0.75 : 0,
+                  transition:    'opacity 0.15s',
+                  letterSpacing: '0.02em',
+                  lineHeight:    1,
+                  userSelect:    'none',
+                }}>
+                  {mode.label}
+                </span>
+              </button>
+            )
+          })}
         </div>
       </div>
 

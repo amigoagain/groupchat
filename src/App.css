@@ -6467,3 +6467,238 @@ input {
   color:   #7a8868;
   opacity: 1; /* Firefox resets to 0.54 by default */
 }
+
+/* ============================================================
+   BRANCH CONFIG — redesigned two-step mode selection + char picker
+   ============================================================ */
+
+/* Step 1 body: centre content with enough padding for safe areas */
+.branch-step1-body {
+  display:         flex;
+  flex-direction:  column;
+  align-items:     stretch;
+  gap:             16px;
+  padding:         16px 20px max(20px, env(safe-area-inset-bottom));
+}
+
+/* "What would you like to do with this?" */
+.branch-mode-question {
+  font-family:    Georgia, serif;
+  font-size:      16px;
+  color:          #4a5830;
+  text-align:     center;
+  letter-spacing: 0.01em;
+  margin:         4px 0;
+}
+
+/* Row of four mode icons */
+.branch-mode-icons-row {
+  display:         flex;
+  justify-content: center;
+  gap:             12px;
+}
+
+/* Back button / header label for step 2 */
+.branch-mode-label-header {
+  flex:           1;
+  text-align:     center;
+  font-family:    Georgia, serif;
+  font-size:      15px;
+  color:          #4a5830;
+  font-style:     italic;
+}
+
+.branch-cancel-btn {
+  margin-left: auto;
+}
+
+/* ── Step 2: character list ──────────────────────────────────────────────── */
+
+/* Limit hint */
+.branch-char-limit-hint {
+  font-size:      12px;
+  color:          #6b7c6a;
+  font-family:    Georgia, serif;
+  font-style:     italic;
+  text-align:     center;
+  padding:        2px 0 6px;
+}
+
+/* Step 2 search input */
+.branch-char-search2 {
+  width:         100%;
+  padding:       9px 12px;
+  border:        1px solid rgba(107, 124, 71, 0.22);
+  border-radius: 10px;
+  background:    rgba(245, 241, 234, 0.7);
+  color:         #3a4a20;
+  font-family:   Georgia, serif;
+  font-size:     14px;
+  outline:       none;
+  box-sizing:    border-box;
+  transition:    border-color 0.15s;
+}
+.branch-char-search2:focus {
+  border-color: rgba(107, 124, 71, 0.55);
+}
+.branch-char-search2::placeholder {
+  color:   #7a8868;
+  opacity: 1;
+}
+
+/* Domain filter chip row */
+.branch-domain-filters {
+  display:    flex;
+  flex-wrap:  wrap;
+  gap:        5px;
+  margin:     2px 0 6px;
+}
+
+.branch-domain-chip {
+  padding:       4px 10px;
+  border:        1px solid rgba(107, 124, 71, 0.22);
+  border-radius: 20px;
+  background:    rgba(245, 241, 234, 0.65);
+  color:         #6b7c6a;
+  font-size:     11px;
+  font-family:   Georgia, serif;
+  cursor:        pointer;
+  transition:    background 0.14s, color 0.14s, border-color 0.14s;
+  white-space:   nowrap;
+}
+
+.branch-domain-chip.active {
+  background:    rgba(107, 124, 71, 0.14);
+  color:         #4a5830;
+  border-color:  rgba(107, 124, 71, 0.45);
+  font-weight:   600;
+}
+
+/* Character list container */
+.branch-char-list2 {
+  display:        flex;
+  flex-direction: column;
+  gap:            6px;
+  flex:           1;
+  overflow-y:     auto;
+}
+
+.branch-char-empty {
+  font-family: Georgia, serif;
+  font-size:   14px;
+  color:       #7a8868;
+  text-align:  center;
+  padding:     20px 0;
+  font-style:  italic;
+}
+
+/* Character row (step 2 redesign) */
+.branch-char-row2 {
+  display:        flex;
+  align-items:    center;
+  gap:            10px;
+  padding:        9px 12px;
+  border:         1px solid rgba(107, 124, 71, 0.14);
+  border-radius:  10px;
+  background:     rgba(245, 241, 234, 0.55);
+  cursor:         pointer;
+  text-align:     left;
+  transition:     background 0.14s, border-color 0.14s, opacity 0.14s;
+  width:          100%;
+}
+
+.branch-char-row2:hover {
+  background:    rgba(245, 241, 234, 0.9);
+  border-color:  rgba(107, 124, 71, 0.32);
+}
+
+.branch-char-row2.selected {
+  background:    rgba(74, 90, 36, 0.10);
+  border-color:  rgba(74, 90, 36, 0.35);
+}
+
+.branch-char-row2.maxed:not(.selected) {
+  opacity: 0.40;
+  cursor:  default;
+}
+
+.branch-char-row2-avatar {
+  width:          36px;
+  height:         36px;
+  border-radius:  50%;
+  display:        flex;
+  align-items:    center;
+  justify-content:center;
+  color:          #fff;
+  font-weight:    600;
+  font-size:      14px;
+  flex-shrink:    0;
+}
+
+.branch-char-row2-info {
+  flex:           1;
+  min-width:      0;
+  display:        flex;
+  flex-direction: column;
+  gap:            2px;
+}
+
+.branch-char-row2-name {
+  font-family:   Georgia, serif;
+  font-size:     14px;
+  color:         #2d3a1a;
+  font-weight:   600;
+  white-space:   nowrap;
+  overflow:      hidden;
+  text-overflow: ellipsis;
+}
+
+.branch-char-row2-title {
+  font-family:   Georgia, serif;
+  font-size:     12px;
+  color:         #6b7c6a;
+  white-space:   nowrap;
+  overflow:      hidden;
+  text-overflow: ellipsis;
+}
+
+.branch-char-row2-badges {
+  display:    flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap:         3px;
+  flex-shrink: 0;
+}
+
+/* Tier badge */
+.branch-char-tier-badge {
+  font-size:     10px;
+  font-family:   Georgia, serif;
+  padding:       2px 7px;
+  border-radius: 10px;
+  font-weight:   600;
+  white-space:   nowrap;
+}
+
+/* Domain badge (reusing pattern from existing) */
+.branch-char-domain-badge {
+  font-size:     10px;
+  font-family:   Georgia, serif;
+  padding:       2px 7px;
+  border-radius: 10px;
+  border:        1px solid;
+  white-space:   nowrap;
+}
+
+.branch-char-row2-check {
+  color:       #4a5a24;
+  font-size:   16px;
+  font-weight: 600;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+/* ── Updated branch-config-header for step 2 ──────────────────────────────── */
+.branch-config-header {
+  gap: 6px; /* ensure consistent spacing */
+}

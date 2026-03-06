@@ -48,7 +48,8 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
   // Stroll state — loaded once on mount for stroll rooms
   const [strollState, setStrollState] = useState(null)
-  const isStrollRoom   = room?.mode?.id === 'stroll' || room?.roomMode === 'stroll'
+  const GARDENER_MODES = ['stroll', 'thinking', 'research', 'professional']
+  const isStrollRoom   = GARDENER_MODES.includes(room?.mode?.id) || GARDENER_MODES.includes(room?.roomMode)
   const isStroll2      = isStrollRoom && (room?.strollType === 'character_stroll')
 
   // Handoff tracking for Stroll 1
@@ -518,7 +519,8 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
       try {
         const { text: responseText, handoffMeta } = await runStrollGardener(
           text, memory, currentStrollState, conversationSnapshot, room.id,
-          room.isKidsMode === true
+          room.isKidsMode === true,
+          room.roomMode || 'stroll'
         )
 
         if (!cancelledRef.current) {
