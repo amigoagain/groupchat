@@ -37,7 +37,7 @@ import {
   buildStroll2DispositionLayer,
 } from './services/gardenerMemory.js'
 import { getStroll2Response } from './services/claudeApi.js'
-import { loadAllCharacters } from './utils/customCharacters.js'
+import { loadAllCharacters, autoCreateGardenerCharacter } from './utils/customCharacters.js'
 import { supabase, isSupabaseConfigured } from './lib/supabase.js'
 
 export default function App() {
@@ -582,7 +582,8 @@ export default function App() {
     const STROLL_2_TURNS         = CHAR_ROOM_TURN_COUNTS[parentMode] || 20
     const strollMode             = { id: parentMode, name: parentMode.charAt(0).toUpperCase() + parentMode.slice(1), icon: '🌿', modeContext: '' }
 
-    // Look up the character
+    // Look up the character — if not in DB, auto-create and persist it.
+    // autoCreateGardenerCharacter handles: DB lookup → Claude generation → DB insert.
     let character = null
     try {
       const allChars = await loadAllCharacters()
@@ -592,13 +593,19 @@ export default function App() {
     } catch {}
 
     if (!character) {
-      // Auto-create a minimal character object if not found
-      character = {
-        id:          characterName.toLowerCase().replace(/\s+/g, '_'),
-        name:        characterName,
-        title:       'Thinker',
-        personality: `You are ${characterName}. Speak in your own voice.`,
-        color:       '#5a7a8a',
+      // Character not found in DB — generate a full profile via Claude and save to DB
+      // so the community of Gardener-discovered thinkers grows over time.
+      try {
+        character = await autoCreateGardenerCharacter(characterName)
+      } catch {
+        // Last-resort in-memory fallback (no DB, no network)
+        character = {
+          id:          characterName.toLowerCase().replace(/\s+/g, '_'),
+          name:        characterName,
+          title:       'Thinker',
+          personality: `You are ${characterName}. Respond in character based on your known views, ideas, and historical context.`,
+          color:       '#5a7a8a',
+        }
       }
     }
 
