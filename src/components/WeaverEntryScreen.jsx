@@ -345,12 +345,15 @@ const MODES_CONFIG = [
 
 const BETA_CONTEXT = {
   stroll:
+    'Bring something you are curious about! ' +
     'Gardener-led orientation sequence. 8 turns. Closes with a handoff question. ' +
     'Opens a single character room — topic-matched respondents. Twenty turn limit in character room.',
   thinking:
+    'Bring something you are curious about! ' +
     'Gardener-led problem-framing sequence. 8 turns. Closes with a handoff question. ' +
     'Opens a character room with 1–2 characters — topic-matched respondents. Thirty turn limit in character room.',
   research:
+    'Bring something you are curious about! ' +
     'Gardener-led research frame. 6 turns. Closes with character selection — up to 3. ' +
     'Opens a character room with your selection. Twenty turn limit.',
 }
@@ -609,7 +612,7 @@ export default function WeaverEntryScreen({
         <div style={{
           position:     'absolute',
           bottom:       '22px',
-          left:         '64px',   // clear of the canvas icon column
+          left:         '20px',
           right:        '20px',
           opacity:      activeMode ? 1 : 0,
           transition:   'opacity 0.30s ease',
@@ -624,6 +627,7 @@ export default function WeaverEntryScreen({
             color:         '#4a5830',
             opacity:       0.60,
             letterSpacing: '0.01em',
+            textAlign:     'center',
           }}>
             {activeMode && BETA_CONTEXT[activeMode]}
           </p>

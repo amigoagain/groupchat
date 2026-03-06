@@ -562,11 +562,16 @@ export async function getStroll2Response(
   dispositionLayer = '',
   signal           = null,
 ) {
+  const isFirstTurn = !previousMessages || previousMessages.filter(m => !m.isContext).length === 0
+
   const systemPrompt =
     `${character.personality}${dispositionLayer}\n\n` +
     `You are in a one-on-one conversation. This is a walk, not a lecture. ` +
     `Write in natural prose. No headers, no bullet points, no markdown formatting. ` +
-    `Respond as ${character.name}. Stay in your own voice and framework.`
+    `Respond as ${character.name}. Stay in your own voice and framework.` +
+    (isFirstTurn
+      ? `\n\nOPENING TURN: This is your first response. Arrive quietly. One or two sentences only — acknowledge the person and what they have brought. Nothing more. You are arriving, not performing.`
+      : '')
 
   const apiMessages = buildApiMessages(previousMessages, character.id, currentUserMessage, [])
 
