@@ -91,6 +91,9 @@ export default function App() {
 
   // ── Professional screen state ─────────────────────────────────────────────
   const [showProfessionalScreen, setShowProfessionalScreen] = useState(false)
+  // Chars selected on ProfessionalScreen before starting a Gardener-led session.
+  // Stored so handleHandoffAccepted can create the multi-char room on handoff.
+  const [pendingProfessionalChars, setPendingProfessionalChars] = useState([])
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const loadAndEnterRoom = async (code) => {
@@ -380,7 +383,7 @@ export default function App() {
    * @param {'stroll'|'thinking'|'research'|'professional'} mode
    * @param {string} text — the user's opening question/curiosity
    */
-  const handleModeEntry = async (mode, text) => {
+  const handleModeEntry = async (mode, text, expertRoster = null) => {
     const trimmed = text.trim()
     if (!trimmed) return
 
@@ -479,8 +482,10 @@ export default function App() {
         initialStrollState,
         [],
         room.id,
-        false,  // isKidsMode
-        mode,   // gardener mode
+        false,       // isKidsMode
+        mode,        // gardener mode
+        null,        // branchContext
+        expertRoster // professional expert roster (null for non-professional modes)
       )
 
       const strollMsgPayload = {
@@ -510,6 +515,9 @@ export default function App() {
       roomMode:         mode,
       strollType:       'gardener_only',
       stroll_turn_count: STROLL_TURNS,
+      // Store expert roster on room object so ChatInterface can pass it to
+      // runStrollGardener on subsequent turns without needing App state.
+      expertRoster:     expertRoster || null,
     }
     setCurrentRoom(strollRoom)
     markRoomVisited(room.code)
@@ -559,12 +567,14 @@ export default function App() {
     const trimmed = text?.trim()
     if (!trimmed) return
     setShowProfessionalScreen(false)
-    // Build a one-line roster to inject as branch context for the Gardener
-    const roster = chars.map(c => `${c.displayName || c.name}${c.title ? ` (${c.title})` : ''}`).join(', ')
-    const enrichedText = trimmed  // text goes through normal entry; roster injected via branchContext
-    // Reuse the entry flow — branchContext is not yet wired into handleModeEntry directly,
-    // so we call it normally and let the Gardener route from the professional prompt.
-    await handleModeEntry('professional', enrichedText)
+    // Store selected chars so handleHandoffAccepted can build the multi-char room later
+    setPendingProfessionalChars(chars || [])
+    // Build a roster string injected into the Gardener's system prompt so she
+    // knows exactly which experts are available and doesn't invent others.
+    const roster = chars?.length
+      ? chars.map(c => `- ${c.displayName || c.name}${c.title ? ` (${c.title})` : ''}`).join('\n')
+      : null
+    await handleModeEntry('professional', trimmed, roster)
   }
 
   /**
@@ -577,8 +587,53 @@ export default function App() {
   const handleHandoffAccepted = async (characterName) => {
     if (!currentRoom?.id) return
 
+    const parentMode = currentRoom.roomMode || 'stroll'
+
+    // ── Professional mode: create multi-char room with all pre-selected experts ──
+    // When the Gardener hands off in a professional session, we skip the single-char
+    // stroll2 path and instead open the full expert panel the user assembled.
+    if (parentMode === 'professional' && pendingProfessionalChars.length > 0) {
+      const profChars = pendingProfessionalChars  // capture before clearing
+      const profMode  = { id: 'professional', name: 'Professional', icon: '🗣', modeContext: '' }
+
+      const profRoom = await createRoom(
+        profMode,
+        profChars,
+        displayName,
+        isAuthenticated ? userId : null,
+        'private',
+        { parentRoomId: currentRoom.id, branchedAtSequence: null, branchDepth: 1, foundingContext: null },
+      )
+
+      if (profRoom.id && supabase) {
+        try {
+          await supabase.from('rooms').update({
+            room_mode:         'professional',
+            stroll_type:       'character_stroll',
+            stroll_turn_count: 20,
+          }).eq('id', profRoom.id)
+        } catch {}
+      }
+
+      await initStrollState(profRoom.id, 20, null, 'character_stroll', '', currentRoom.id)
+      setPendingProfessionalChars([])
+
+      const profRoomObj = {
+        ...profRoom,
+        mode:              profMode,
+        roomMode:          'professional',
+        strollType:        'character_stroll',
+        stroll_turn_count: 20,
+        characters:        profChars,
+      }
+      setCurrentRoom(profRoomObj)
+      markRoomVisited(profRoom.code)
+      navigate(`/room/${profRoom.code}`, { replace: true })
+      // screen stays 'chat' — seamless transition
+      return
+    }
+
     const CHAR_ROOM_TURN_COUNTS = { stroll: 20, thinking: 30 }
-    const parentMode             = currentRoom.roomMode || 'stroll'
     const STROLL_2_TURNS         = CHAR_ROOM_TURN_COUNTS[parentMode] || 20
     const strollMode             = { id: parentMode, name: parentMode.charAt(0).toUpperCase() + parentMode.slice(1), icon: '🌿', modeContext: '' }
 
@@ -943,12 +998,18 @@ export default function App() {
 
   /**
    * Called by ChatInterface back button.
-   * Returns user to My Conversations in the private library.
+   * Professional rooms return to ProfessionalScreen; all others go to My Conversations.
    */
   const handleBackFromChat = () => {
+    const wasProfessional = currentRoom?.roomMode === 'professional'
     setCurrentRoom(null)
     navigate('/', { replace: true })
-    handleOpenLibrary('private', 'my_convos')
+    if (wasProfessional) {
+      setScreen('weaver')
+      setShowProfessionalScreen(true)
+    } else {
+      handleOpenLibrary('private', 'my_convos')
+    }
   }
 
   const handleBackToMode = () => {

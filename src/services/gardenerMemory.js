@@ -1216,7 +1216,7 @@ function buildStrollSeasonalInstruction(season, turnsRemaining, handoffMentions 
  * @param {string|null} branchContext — optional text of founding messages injected into system prompt
  * @returns {{ text: string, handoffMeta: null | { type: string, characterName: string } }}
  */
-export async function runStrollGardener(userMessage, memory, strollState, previousMessages, roomId, isKidsMode = false, mode = 'stroll', branchContext = null) {
+export async function runStrollGardener(userMessage, memory, strollState, previousMessages, roomId, isKidsMode = false, mode = 'stroll', branchContext = null, expertRoster = null) {
   const season          = strollState?.current_season || memory?.seasonal_position || 'winter_1'
   const turnsRemaining  = strollState?.turns_remaining ?? 0
   const turnsElapsed    = strollState?.turns_elapsed ?? -1
@@ -1294,6 +1294,12 @@ export async function runStrollGardener(userMessage, memory, strollState, previo
     ? `\n\nBRANCH CONTEXT: This conversation was opened from an existing conversation. The person brought these messages with them:\n${branchContext}`
     : ''
 
+  // Professional mode: inject the pre-selected expert roster so the Gardener
+  // knows exactly who is available and never introduces anyone outside the list.
+  const expertRosterBlock = expertRoster
+    ? `\n\nAVAILABLE EXPERTS: The user has already selected the following expert advisors for this session. When you recommend who to speak with, you MUST choose from ONLY these experts — do not suggest or introduce anyone not on this list:\n${expertRoster}`
+    : ''
+
   // Seasonal system: stroll only. Other modes have their own arc in their base prompt.
   const seasonalInstruction = (mode === 'stroll' && !isKidsMode)
     ? buildStrollSeasonalInstruction(season, turnsRemaining, handoffMentions, handoffStatus, handoffCharacter, turnsElapsed)
@@ -1307,6 +1313,7 @@ export async function runStrollGardener(userMessage, memory, strollState, previo
     getGardenerBase() +
     openingContextBlock +
     branchContextBlock +
+    expertRosterBlock +
     seasonalInstruction +
     kidsHandoffNote +
     ladybugContext

@@ -566,7 +566,9 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
         const { text: responseText, handoffMeta } = await runStrollGardener(
           text, memory, currentStrollState, conversationSnapshot, room.id,
           room.isKidsMode === true,
-          room.roomMode || 'stroll'
+          room.roomMode || 'stroll',
+          null,                 // branchContext
+          room.expertRoster || null  // professional expert roster (null for other modes)
         )
 
         if (!cancelledRef.current) {
