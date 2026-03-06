@@ -2,19 +2,15 @@ import { useRef, useCallback } from 'react'
 import { formatTime } from '../utils/roomUtils.js'
 
 /**
- * MessageBubble — renders one chat message with selection/branch support.
+ * MessageBubble — renders one chat message with long-press selection support.
  *
  * Props:
  *   message               — message object (type, content, characterName, etc.)
  *   messageIndex          — index in the messages array
- *   isSelected            — highlight when in selection range
- *   inSelectionMode       — true when branch-selection mode is active
- *   onTapInSelectionMode  — extend/contract selection by tapping
- *   onEnterSelectionMode  — long-press or ⎇ click to enter selection mode
- *   onHandleMove(type, idx) — drag handle moved; type = 'start' | 'end'
- *   isFirstSelected       — show top drag handle
- *   isLastSelected        — show bottom drag handle
- *   msgRef                — forwarded ref (for data-msg-index hit-testing)
+ *   isSelected            — highlight when selected
+ *   inSelectionMode       — true when message selection mode is active
+ *   onTapInSelectionMode  — toggle this message's selection
+ *   onEnterSelectionMode  — long-press (400ms) to enter selection mode on this message
  */
 export default function MessageBubble({
   message,
@@ -23,17 +19,13 @@ export default function MessageBubble({
   inSelectionMode     = false,
   onTapInSelectionMode,
   onEnterSelectionMode,
-  onHandleMove,
-  isFirstSelected     = false,
-  isLastSelected      = false,
-  msgRef,
 }) {
   const longPressTimer = useRef(null)
 
-  // Long-press (500ms) → enter selection mode on the tapped message
+  // Long-press (400ms) → enter selection mode on the tapped message
   const handlePointerDown = useCallback(() => {
     if (inSelectionMode || !onEnterSelectionMode) return
-    longPressTimer.current = setTimeout(() => onEnterSelectionMode(), 500)
+    longPressTimer.current = setTimeout(() => onEnterSelectionMode(), 400)
   }, [inSelectionMode, onEnterSelectionMode])
 
   const cancelLongPress = useCallback(() => {
@@ -43,60 +35,8 @@ export default function MessageBubble({
     }
   }, [])
 
-  // Drag-handle: attach global listeners, resolve message index from DOM
-  const makeDragHandlers = useCallback((handleType) => {
-    const resolveIndexFromTouch = (clientX, clientY) => {
-      const el = document.elementFromPoint(clientX, clientY)
-      if (!el) return null
-      const msgEl = el.closest('[data-msg-index]')
-      return msgEl ? parseInt(msgEl.dataset.msgIndex, 10) : null
-    }
-
-    const onMouseMove = (e) => {
-      e.preventDefault()
-      // Use closest message element under cursor
-      const el = document.elementFromPoint(e.clientX, e.clientY)
-      if (!el) return
-      const msgEl = el.closest('[data-msg-index]')
-      if (msgEl) {
-        const idx = parseInt(msgEl.dataset.msgIndex, 10)
-        if (!isNaN(idx)) onHandleMove?.(handleType, idx)
-      }
-    }
-
-    const onTouchMove = (e) => {
-      e.preventDefault()
-      const touch = e.touches[0]
-      const idx = resolveIndexFromTouch(touch.clientX, touch.clientY)
-      if (idx !== null && !isNaN(idx)) onHandleMove?.(handleType, idx)
-    }
-
-    const stopDrag = () => {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', stopDrag)
-      document.removeEventListener('touchmove', onTouchMove)
-      document.removeEventListener('touchend', stopDrag)
-    }
-
-    return {
-      onMouseDown: (e) => {
-        e.stopPropagation()
-        e.preventDefault()
-        document.addEventListener('mousemove', onMouseMove)
-        document.addEventListener('mouseup', stopDrag)
-      },
-      onTouchStart: (e) => {
-        e.stopPropagation()
-        e.preventDefault()
-        document.addEventListener('touchmove', onTouchMove, { passive: false })
-        document.addEventListener('touchend', stopDrag)
-      },
-    }
-  }, [onHandleMove])
-
   const sharedProps = {
     'data-msg-index': messageIndex,
-    ref:              msgRef,
   }
 
   // ── Context message (carried over from parent branch) ───────────────────────
@@ -135,26 +75,10 @@ export default function MessageBubble({
         onPointerUp={cancelLongPress}
         onPointerLeave={cancelLongPress}
       >
-        {isFirstSelected && (
-          <div className="msg-drag-handle msg-drag-handle-top" {...makeDragHandlers('start')} />
-        )}
-
         <div className="message-user-bubble">{message.content}</div>
         <div className="message-user-footer">
           <div className="message-user-time">{formatTime(message.timestamp)}</div>
-          {!inSelectionMode && onEnterSelectionMode && (
-            <button
-              className="message-branch-btn"
-              type="button"
-              title="Select to branch"
-              onClick={(e) => { e.stopPropagation(); onEnterSelectionMode() }}
-            >⎇</button>
-          )}
         </div>
-
-        {isLastSelected && (
-          <div className="msg-drag-handle msg-drag-handle-bottom" {...makeDragHandlers('end')} />
-        )}
       </div>
     )
   }
@@ -170,10 +94,6 @@ export default function MessageBubble({
         onPointerUp={cancelLongPress}
         onPointerLeave={cancelLongPress}
       >
-        {isFirstSelected && (
-          <div className="msg-drag-handle msg-drag-handle-top" {...makeDragHandlers('start')} />
-        )}
-
         <div className="message-character-header">
           <div
             className="message-character-avatar"
@@ -188,14 +108,6 @@ export default function MessageBubble({
             {message.characterName}
           </div>
           <div className="message-character-time">{formatTime(message.timestamp)}</div>
-          {!inSelectionMode && onEnterSelectionMode && (
-            <button
-              className="message-branch-btn"
-              type="button"
-              title="Select to branch"
-              onClick={(e) => { e.stopPropagation(); onEnterSelectionMode() }}
-            >⎇</button>
-          )}
         </div>
 
         <div
@@ -204,10 +116,6 @@ export default function MessageBubble({
         >
           {message.content}
         </div>
-
-        {isLastSelected && (
-          <div className="msg-drag-handle msg-drag-handle-bottom" {...makeDragHandlers('end')} />
-        )}
       </div>
     )
   }

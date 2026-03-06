@@ -83,10 +83,10 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
   const [ancestors,      setAncestors]      = useState([])
   const [ancestorsLoading, setAncestorsLoading] = useState(false)
 
-  // ── Branch selection mode ──────────────────────────────────────────────────
-  const [selectionMode,  setSelectionMode]  = useState(false)
-  const [selectionRange, setSelectionRange] = useState({ start: null, end: null })
-  const msgRefs = useRef([]) // one ref per message div
+  // ── Message selection mode ─────────────────────────────────────────────────
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds,   setSelectedIds]   = useState(new Set())
+  const [notesCopied,   setNotesCopied]   = useState(false)
 
   const messagesEndRef      = useRef(null)
   const messagesContainerRef = useRef(null)
@@ -814,42 +814,34 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     }
   }
 
-  // ── Branch selection mode ──────────────────────────────────────────────────
+  // ── Message selection mode ─────────────────────────────────────────────────
 
-  const enterSelectionMode = useCallback((startIdx) => {
+  const enterSelectionMode = useCallback((msgId) => {
     setSelectionMode(true)
-    setSelectionRange({ start: startIdx, end: startIdx })
+    setSelectedIds(new Set([msgId]))
   }, [])
 
   const exitSelectionMode = useCallback(() => {
     setSelectionMode(false)
-    setSelectionRange({ start: null, end: null })
+    setSelectedIds(new Set())
   }, [])
 
-  const handleHandleMove = useCallback((handleType, newIdx) => {
-    setSelectionRange(prev => {
-      if (handleType === 'start') {
-        const newStart = Math.min(newIdx, prev.end ?? newIdx)
-        return { ...prev, start: newStart }
-      } else {
-        const newEnd = Math.max(newIdx, prev.start ?? newIdx)
-        return { ...prev, end: newEnd }
-      }
+  const handleMessageToggle = useCallback((msgId) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(msgId)) next.delete(msgId)
+      else next.add(msgId)
+      return next
     })
   }, [])
 
-  const handleMessageTap = useCallback((idx) => {
-    if (!selectionMode) return
-    setSelectionRange(prev => {
-      if (prev.start === null) return { start: idx, end: idx }
-      const newStart = Math.min(prev.start, idx)
-      const newEnd   = Math.max(prev.end, idx)
-      return { start: newStart, end: newEnd }
-    })
-  }, [selectionMode])
+  const handleSelectAll = useCallback(() => {
+    const allIds = new Set(messages.filter(m => !m.isContext).map(m => m.id))
+    setSelectedIds(allIds)
+  }, [messages])
 
-  const selectedMessages = selectionMode && selectionRange.start !== null
-    ? messages.slice(selectionRange.start, (selectionRange.end ?? selectionRange.start) + 1)
+  const selectedMessages = selectionMode
+    ? messages.filter(m => selectedIds.has(m.id))
     : []
 
   const handleBranchFromSelection = useCallback(() => {
@@ -863,23 +855,25 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     exitSelectionMode()
   }, [onOpenBranchConfig, selectedMessages, room, exitSelectionMode])
 
-  // ── Branch icon: toggle selection mode or confirm branch ──────────────────
-  const handleBranchIconTap = useCallback(() => {
-    if (selectionMode) {
-      if (selectedMessages.length > 0) {
-        handleBranchFromSelection()
-      } else {
-        exitSelectionMode()
-      }
-    } else {
-      // Enter selection mode at the last non-context message
-      const liveMessages = messages.filter(m => !m.isContext)
-      if (liveMessages.length > 0) {
-        const lastIdx = messages.length - 1
-        enterSelectionMode(lastIdx)
-      }
+  // ── Copy to Notes ──────────────────────────────────────────────────────────
+  const handleCopyToNotes = useCallback(async () => {
+    if (!userId || selectedMessages.length === 0) return
+    if (!isSupabaseConfigured || !supabase) return
+    const date = new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    const header = `Room ${room.code} · ${date}`
+    const body = selectedMessages.map(m => {
+      const sender = m.type === 'user' ? (m.senderName || 'User') : (m.characterName || 'Character')
+      return `${sender}: ${m.content}`
+    }).join('\n\n')
+    const content = `${header}\n\n${body}`
+    try {
+      await supabase.from('notebook_entries').insert({ user_id: userId, content })
+      setNotesCopied(true)
+      setTimeout(() => { setNotesCopied(false); exitSelectionMode() }, 1500)
+    } catch (err) {
+      console.warn('[CopyToNotes] failed:', err)
     }
-  }, [selectionMode, selectedMessages, handleBranchFromSelection, exitSelectionMode, messages, enterSelectionMode])
+  }, [userId, selectedMessages, room, exitSelectionMode])
 
   // ── Participant management ─────────────────────────────────────────────────
   const handleOpenParticipants = async () => {
@@ -944,107 +938,146 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
           </button>
         </div>
 
-        {/* Top-right: participants, share, genealogy, branch */}
+        {/* Top-right: character count */}
         <div className="chat-float-right">
-          {/* Participants — shown to all (admin sees management) */}
           <button
             className="chat-float-btn"
             onClick={handleOpenParticipants}
             title="Characters in this room"
             aria-label="Characters"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-            </svg>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+              <span style={{ fontFamily: 'Georgia, serif', fontSize: '12px', color: 'inherit', lineHeight: 1 }}>
+                {room.characters.length}
+              </span>
+            </div>
           </button>
-
-          {/* Library */}
-          <button
-            className="chat-float-btn"
-            onClick={() => onOpenLibrary && onOpenLibrary()}
-            title="Library"
-            aria-label="Library"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-            </svg>
-          </button>
-
-          {/* Copy transcript */}
-          <button
-            className={`chat-float-btn${copyState === 'copied' ? ' share-active' : ''}`}
-            onClick={handleCopyChat}
-            title="Copy chat transcript"
-            aria-label="Copy chat"
-          >
-            {copyState === 'copied'
-              ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                </svg>
-            }
-          </button>
-
-          {/* Share — with live sync dot */}
-          <button
-            className={`chat-float-btn${shareState !== 'idle' ? ` share-active` : ''}`}
-            onClick={handleShareLink}
-            disabled={shareState === 'generating'}
-            title="Share room"
-            aria-label="Share"
-          >
-            {shareState === 'generating' && <span className="share-spinner" />}
-            {shareState === 'copied' || shareState === 'shared'
-              ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              : <span className="chat-float-share-wrap">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-                  </svg>
-                  {isLiveSync && <span className="chat-live-dot" />}
-                </span>
-            }
-          </button>
-
-          {/* Genealogy */}
-          <button
-            className="chat-float-btn"
-            onClick={handleOpenGenealogy}
-            title="Room lineage"
-            aria-label="Genealogy"
-          >
-            {/* Branching path / lineage icon */}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="6" cy="6" r="2"/>
-              <circle cx="6" cy="18" r="2"/>
-              <circle cx="18" cy="12" r="2"/>
-              <line x1="6" y1="8" x2="6" y2="16"/>
-              <line x1="8" y1="6" x2="16" y2="10.5"/>
-              <line x1="8" y1="18" x2="16" y2="13.5"/>
-            </svg>
-          </button>
-
-          {/* Branch — hidden in already-branched rooms to avoid duplicating the genealogy icon */}
-          {!room.parentRoomId && (
-          <button
-            className={`chat-float-btn${selectionMode ? ' chat-float-btn-active' : ''}`}
-            onClick={handleBranchIconTap}
-            title={selectionMode ? (selectedMessages.length > 0 ? 'Branch selected messages' : 'Cancel') : 'Branch this conversation'}
-            aria-label="Branch"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="6" y1="3" x2="6" y2="15"/>
-              <circle cx="18" cy="6" r="3"/>
-              <circle cx="6" cy="18" r="3"/>
-              <path d="M18 9a9 9 0 0 1-9 9"/>
-            </svg>
-          </button>
-          )}
         </div>
       </div>
+
+      {/* ── Selection action bar — slides down below header when selection mode active ── */}
+      {selectionMode && (
+        <div style={{
+          position:       'fixed',
+          top:            'calc(max(10px, env(safe-area-inset-top, 0px)) + 54px)',
+          left:           0,
+          right:          0,
+          zIndex:         100,
+          background:     'rgba(245, 242, 236, 0.97)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          borderBottom:   '1px solid rgba(107, 124, 71, 0.14)',
+          display:        'flex',
+          alignItems:     'center',
+          padding:        '7px 12px',
+          gap:            '8px',
+        }}>
+
+          {/* × dismiss */}
+          <button
+            onClick={exitSelectionMode}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: '#6b7c47', fontSize: '15px', padding: '4px 6px',
+              fontFamily: 'system-ui, sans-serif', lineHeight: 1, flexShrink: 0,
+            }}
+          >✕</button>
+
+          {/* Count + Select all */}
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+            <span style={{ fontFamily: 'Georgia, serif', fontSize: '13px', color: selectedIds.size > 0 ? '#4a5830' : '#8a9a70', whiteSpace: 'nowrap' }}>
+              {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Hold to select'}
+            </span>
+            <button
+              onClick={handleSelectAll}
+              style={{
+                background: 'none', border: '1px solid rgba(107,124,71,0.28)', borderRadius: '8px',
+                cursor: 'pointer', color: '#4a5830', fontFamily: 'Georgia, serif',
+                fontSize: '11px', padding: '2px 8px', flexShrink: 0,
+              }}
+            >All</button>
+          </div>
+
+          {/* Action icons: Notes · Genealogy · Branch */}
+          <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+
+            {/* Save to Notes */}
+            <button
+              onClick={handleCopyToNotes}
+              disabled={selectedIds.size === 0}
+              title={notesCopied ? 'Saved!' : 'Save to notes'}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: '36px', height: '36px', borderRadius: '50%',
+                background: notesCopied ? 'rgba(74,90,36,0.15)' : 'rgba(107,124,71,0.08)',
+                border: `1px solid ${notesCopied ? 'rgba(74,90,36,0.35)' : 'rgba(107,124,71,0.20)'}`,
+                cursor: selectedIds.size === 0 ? 'default' : 'pointer',
+                color: notesCopied ? '#4a5a24' : (selectedIds.size === 0 ? '#b8c8a8' : '#5a6b30'),
+                transition: 'background 0.15s ease, color 0.15s ease',
+              }}
+            >
+              {notesCopied
+                ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                    <polyline points="10 9 9 9 8 9"/>
+                  </svg>
+              }
+            </button>
+
+            {/* Genealogy */}
+            <button
+              onClick={() => { handleOpenGenealogy(); exitSelectionMode() }}
+              title="Room lineage"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: '36px', height: '36px', borderRadius: '50%',
+                background: 'rgba(107,124,71,0.08)',
+                border: '1px solid rgba(107,124,71,0.20)',
+                cursor: 'pointer', color: '#5a6b30',
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="6" cy="6" r="2"/>
+                <circle cx="6" cy="18" r="2"/>
+                <circle cx="18" cy="12" r="2"/>
+                <line x1="6" y1="8" x2="6" y2="16"/>
+                <line x1="8" y1="6" x2="16" y2="10.5"/>
+                <line x1="8" y1="18" x2="16" y2="13.5"/>
+              </svg>
+            </button>
+
+            {/* Branch */}
+            <button
+              onClick={handleBranchFromSelection}
+              disabled={selectedIds.size === 0}
+              title="Branch from selected messages"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: '36px', height: '36px', borderRadius: '50%',
+                background: 'rgba(107,124,71,0.08)',
+                border: '1px solid rgba(107,124,71,0.20)',
+                cursor: selectedIds.size === 0 ? 'default' : 'pointer',
+                color: selectedIds.size === 0 ? '#b8c8a8' : '#5a6b30',
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="6" y1="3" x2="6" y2="15"/>
+                <circle cx="18" cy="6" r="3"/>
+                <circle cx="6" cy="18" r="3"/>
+                <path d="M18 9a9 9 0 0 1-9 9"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Messages ── */}
       <div className="chat-messages" ref={messagesContainerRef}>
@@ -1063,9 +1096,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
         ) : isEmpty ? null : (() => {
           const lastContextIdx = messages.reduce((last, m, i) => m.isContext ? i : last, -1)
           return messages.map((msg, idx) => {
-            const isSelected = selectionMode &&
-              selectionRange.start !== null &&
-              idx >= selectionRange.start && idx <= (selectionRange.end ?? selectionRange.start)
+            const isSelected = selectionMode && selectedIds.has(msg.id)
 
             return (
               <React.Fragment key={msg.id || idx}>
@@ -1077,52 +1108,141 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
                   messageIndex={idx}
                   isSelected={isSelected}
                   inSelectionMode={selectionMode}
-                  onTapInSelectionMode={() => handleMessageTap(idx)}
-                  onEnterSelectionMode={msg.isContext ? undefined : () => enterSelectionMode(idx)}
-                  onHandleMove={handleHandleMove}
-                  showBranchHints={selectionMode}
-                  isFirstSelected={selectionMode && idx === selectionRange.start}
-                  isLastSelected={selectionMode && idx === selectionRange.end}
-                  msgRef={el => { msgRefs.current[idx] = el }}
+                  onTapInSelectionMode={() => handleMessageToggle(msg.id)}
+                  onEnterSelectionMode={msg.isContext ? undefined : () => enterSelectionMode(msg.id)}
                 />
               </React.Fragment>
             )
           })
         })()}
 
-        {/* ── Handoff threshold icon ── */}
-        {/* Centered walking-figure pill rendered after the Gardener's bridging message. */}
-        {/* Persists in the thread as the permanent visual marker of the transition. */}
+        {/* ── Handoff threshold — feature explainer + continue button ── */}
         {handoffThresholdVisible && !handoffTransitioned && (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0 8px' }}>
-            <button
-              onClick={handleThresholdTap}
-              onTouchEnd={(e) => { e.preventDefault(); handleThresholdTap() }}
-              title="Continue to next companion"
-              aria-label="Continue handoff"
-              style={{
-                display:        'flex',
-                alignItems:     'center',
-                justifyContent: 'center',
-                background:     'rgba(107, 124, 71, 0.10)',
-                border:         '1.5px solid rgba(107, 124, 71, 0.32)',
-                borderRadius:   '32px',
-                padding:        '12px 28px',
-                cursor:         'pointer',
-                color:          '#6b7c47',
-              }}
-            >
-              <svg width="18" height="21" viewBox="0 0 14 16" fill="none"
-                stroke="currentColor" strokeWidth="1.5"
-                strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="9" cy="2" r="1.5" />
-                <line x1="8.5" y1="3.5" x2="7.5" y2="8" />
-                <line x1="8"   y1="5.5" x2="11"  y2="7.5" />
-                <line x1="8"   y1="5.5" x2="5.5" y2="6.5" />
-                <line x1="7.5" y1="8"   x2="10"  y2="13" />
-                <line x1="7.5" y1="8"   x2="5"   y2="12" />
-              </svg>
-            </button>
+          <div style={{
+            margin:       '20px 20px 8px',
+            background:   'rgba(107, 124, 71, 0.05)',
+            border:       '1px solid rgba(107, 124, 71, 0.16)',
+            borderRadius: '14px',
+            padding:      '18px 16px 14px',
+          }}>
+            {/* Header */}
+            <div style={{
+              fontFamily:  'Georgia, serif',
+              fontSize:    '13px',
+              color:       '#4a5830',
+              textAlign:   'center',
+              marginBottom:'18px',
+              lineHeight:  1.5,
+            }}>
+              In your next room, press and hold any message to:
+            </div>
+
+            {/* 3 feature icons */}
+            <div style={{ display: 'flex', justifyContent: 'space-around', marginBottom: '20px' }}>
+
+              {/* Save to notes */}
+              <div style={{ textAlign: 'center', flex: 1 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: '50%',
+                  background: 'rgba(107,124,71,0.10)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto 7px',
+                }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5a6b30" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                    <polyline points="10 9 9 9 8 9"/>
+                  </svg>
+                </div>
+                <div style={{ fontSize: '11px', color: '#6b7c47', fontFamily: 'system-ui, sans-serif', letterSpacing: '0.02em' }}>
+                  Save to notes
+                </div>
+              </div>
+
+              {/* Branch */}
+              <div style={{ textAlign: 'center', flex: 1 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: '50%',
+                  background: 'rgba(107,124,71,0.10)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto 7px',
+                }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5a6b30" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="6" y1="3" x2="6" y2="15"/>
+                    <circle cx="18" cy="6" r="3"/>
+                    <circle cx="6" cy="18" r="3"/>
+                    <path d="M18 9a9 9 0 0 1-9 9"/>
+                  </svg>
+                </div>
+                <div style={{ fontSize: '11px', color: '#6b7c47', fontFamily: 'system-ui, sans-serif', letterSpacing: '0.02em' }}>
+                  Branch
+                </div>
+              </div>
+
+              {/* Trace lineage */}
+              <div style={{ textAlign: 'center', flex: 1 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: '50%',
+                  background: 'rgba(107,124,71,0.10)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto 7px',
+                }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5a6b30" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="6" cy="6" r="2"/>
+                    <circle cx="6" cy="18" r="2"/>
+                    <circle cx="18" cy="12" r="2"/>
+                    <line x1="6" y1="8" x2="6" y2="16"/>
+                    <line x1="8" y1="6" x2="16" y2="10.5"/>
+                    <line x1="8" y1="18" x2="16" y2="13.5"/>
+                  </svg>
+                </div>
+                <div style={{ fontSize: '11px', color: '#6b7c47', fontFamily: 'system-ui, sans-serif', letterSpacing: '0.02em' }}>
+                  Trace lineage
+                </div>
+              </div>
+            </div>
+
+            {/* Separator + walking man continue */}
+            <div style={{
+              borderTop:  '1px solid rgba(107,124,71,0.14)',
+              paddingTop: '14px',
+              display:    'flex',
+              justifyContent: 'center',
+            }}>
+              <button
+                onClick={handleThresholdTap}
+                onTouchEnd={(e) => { e.preventDefault(); handleThresholdTap() }}
+                title="Continue to next companion"
+                aria-label="Continue handoff"
+                style={{
+                  display:     'flex',
+                  alignItems:  'center',
+                  gap:         '8px',
+                  background:  'rgba(107, 124, 71, 0.10)',
+                  border:      '1.5px solid rgba(107, 124, 71, 0.32)',
+                  borderRadius:'24px',
+                  padding:     '9px 22px',
+                  cursor:      'pointer',
+                  color:       '#6b7c47',
+                  fontFamily:  'Georgia, serif',
+                  fontSize:    '13px',
+                }}
+              >
+                <svg width="16" height="19" viewBox="0 0 14 16" fill="none"
+                  stroke="currentColor" strokeWidth="1.5"
+                  strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="9" cy="2" r="1.5" />
+                  <line x1="8.5" y1="3.5" x2="7.5" y2="8" />
+                  <line x1="8"   y1="5.5" x2="11"  y2="7.5" />
+                  <line x1="8"   y1="5.5" x2="5.5" y2="6.5" />
+                  <line x1="7.5" y1="8"   x2="10"  y2="13" />
+                  <line x1="7.5" y1="8"   x2="5"   y2="12" />
+                </svg>
+                Continue
+              </button>
+            </div>
           </div>
         )}
 
@@ -1162,27 +1282,6 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
         <div ref={messagesEndRef} />
       </div>
 
-      {/* ── Branch selection floating bar ── */}
-      {selectionMode && (
-        <div className="chat-selection-bar">
-          <button className="chat-selection-cancel" onClick={exitSelectionMode} type="button">
-            ✕ Cancel
-          </button>
-          <span className="chat-selection-count">
-            {selectedMessages.length > 0
-              ? `${selectedMessages.length} message${selectedMessages.length !== 1 ? 's' : ''} selected`
-              : 'Tap messages to select'}
-          </span>
-          <button
-            className="chat-selection-branch-btn"
-            onClick={handleBranchFromSelection}
-            disabled={selectedMessages.length === 0}
-            type="button"
-          >
-            ⎇ Branch
-          </button>
-        </div>
-      )}
 
       {/* ── Jump to bottom button ── */}
       {showScrollBtn && (
@@ -1336,7 +1435,33 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
 
             <div className="genealogy-header">
               <span className="genealogy-title">Room lineage</span>
-              <button className="genealogy-close" onClick={() => setShowGenealogy(false)} type="button">✕</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  onClick={handleCopyChat}
+                  title="Copy transcript"
+                  type="button"
+                  style={{
+                    background:   'none',
+                    border:       '1px solid rgba(107,124,71,0.28)',
+                    borderRadius: '8px',
+                    cursor:       'pointer',
+                    color:        copyState === 'copied' ? '#4a5a24' : '#6b7c47',
+                    fontFamily:   'Georgia, serif',
+                    fontSize:     '12px',
+                    padding:      '4px 10px',
+                    display:      'flex',
+                    alignItems:   'center',
+                    gap:          '5px',
+                    transition:   'color 0.15s ease',
+                  }}
+                >
+                  {copyState === 'copied'
+                    ? <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Copied</>
+                    : <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Transcript</>
+                  }
+                </button>
+                <button className="genealogy-close" onClick={() => setShowGenealogy(false)} type="button">✕</button>
+              </div>
             </div>
 
             {/* Room details */}

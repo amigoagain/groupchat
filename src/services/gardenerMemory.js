@@ -1180,7 +1180,7 @@ function buildStrollSeasonalInstruction(season, turnsRemaining, handoffMentions 
   let handoffGuidance = ''
   if (handoffSeasons.includes(season)) {
     if (handoffStatus === 'accepted' && handoffCharacter) {
-      handoffGuidance = `\n\nHANDOFF — ACCEPTED: The person has agreed to walk with ${handoffCharacter}. Make a brief, warm send-off. Natural. The way a walk ends when the path forks and someone goes a different way. Do not over-explain. Do not summarize the stroll. Just a closing gesture that makes the fork feel right. This is your last turn in this stroll.`
+      handoffGuidance = `\n\nHANDOFF — ACCEPTED: The person has agreed to walk with ${handoffCharacter}. Make a brief, warm send-off. Natural. The way a walk ends when the path forks and someone goes a different way. Do not over-explain. Do not summarize the stroll. Just a closing gesture that makes the fork feel right. End your send-off with exactly this sentence: "Before you go — press and hold any message in your next room to save it to your notes, open a branch, or trace the conversation's lineage." This is your last turn in this stroll.`
     } else if (season === 'summer_2' && handoffStatus === 'none') {
       // summer_2 is the mandatory handoff turn — must ask by this point
       handoffGuidance = `\n\nHANDOFF — REQUIRED THIS TURN: The walk has reached its direction point. You must name one specific character who genuinely fits what you have seen in this walk. Ask directly whether they would like to speak with this person. Weave it naturally into your response. You must include this marker at the END of your response on its own line:\n[HANDOFF_QUESTION:CharacterName]\nReplace CharacterName with the exact character name. The marker is stripped before display.`

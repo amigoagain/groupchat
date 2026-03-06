@@ -4936,6 +4936,17 @@ input {
   opacity: 0.88;
 }
 
+/* Extra top padding when selection action bar is visible */
+.chat-screen.selection-mode .chat-messages {
+  padding-top: 130px; /* 80px default + ~50px action bar */
+}
+
+@media (max-width: 480px) {
+  .chat-screen.selection-mode .chat-messages {
+    padding-top: 122px; /* 72px mobile default + ~50px action bar */
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    CHAT — CONTEXT MESSAGES (carried-over messages from parent branch room)
    ═══════════════════════════════════════════════════════════════════════════ */
