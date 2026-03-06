@@ -212,13 +212,25 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
     }
   }, [messages, typingCharacter, selectionMode])
 
-  // ── visualViewport: lift fixed input above keyboard on iOS ────────────────
+  // ── visualViewport: constrain height + lift input above keyboard on iOS ──────
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
+    let prevKeyboardHeight = 0
     const handleResize = () => {
       const keyboardHeight = Math.max(0, window.innerHeight - vv.height)
       document.documentElement.style.setProperty('--chat-keyboard-offset', `${keyboardHeight}px`)
+      // Constrain chat-screen to the visual viewport height so the layout
+      // doesn't overflow below the keyboard, keeping messages in view
+      document.documentElement.style.setProperty('--chat-vv-height', `${vv.height}px`)
+      // When keyboard newly opens, snap message list to bottom so the latest
+      // message stays visible just above the lifted input
+      if (keyboardHeight > 50 && prevKeyboardHeight <= 50) {
+        requestAnimationFrame(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'instant' })
+        })
+      }
+      prevKeyboardHeight = keyboardHeight
     }
     handleResize()
     vv.addEventListener('resize', handleResize)
@@ -227,6 +239,7 @@ export default function ChatInterface({ room, onUpdateRoom, onBack, onOpenBranch
       vv.removeEventListener('resize', handleResize)
       vv.removeEventListener('scroll', handleResize)
       document.documentElement.style.removeProperty('--chat-keyboard-offset')
+      document.documentElement.style.removeProperty('--chat-vv-height')
     }
   }, [])
 

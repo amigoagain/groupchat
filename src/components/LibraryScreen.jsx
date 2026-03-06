@@ -350,7 +350,7 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
   const [activeTab,     setActiveTab]     = useState(initialTab)
   const [activeSection, setActiveSection] = useState(
     initialTab === 'public'
-      ? 'architecture'
+      ? 'home'
       : (initialSection === 'my_convos' ? 'convos' : (initialSection || 'convos'))
   )
   const [data,          setData]          = useState({})
@@ -381,7 +381,7 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
   // Switch tab → land on first section for that tab
   const handleTabSwitch = (tab) => {
     setActiveTab(tab)
-    const firstSection = tab === 'public' ? 'architecture' : 'convos'
+    const firstSection = tab === 'public' ? 'home' : 'convos'
     setActiveSection(firstSection)
   }
 
@@ -474,8 +474,8 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
           paddingTop:     'max(14px, env(safe-area-inset-top, 14px))',
           borderBottom:   '1px solid rgba(107, 124, 71, 0.14)',
           flexShrink:     0,
-          gap:            '10px',
           boxSizing:      'border-box',
+          position:       'relative',
         }}>
           <button
             onClick={onBack}
@@ -490,6 +490,7 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
               display:    'flex',
               alignItems: 'center',
               lineHeight: 1,
+              zIndex:     1,
             }}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -497,14 +498,18 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
             </svg>
           </button>
           <span style={{
+            position:      'absolute',
+            left:          '50%',
+            transform:     'translateX(-50%)',
             fontFamily:    'Georgia, serif',
             fontSize:      '13px',
             letterSpacing: '0.14em',
             color:         '#4a5830',
             opacity:       0.60,
             userSelect:    'none',
+            whiteSpace:    'nowrap',
           }}>
-            my library
+            my kepos
           </span>
         </div>
 
@@ -599,15 +604,23 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
   return (
     <div style={S.screen}>
       {/* Header */}
-      <div style={S.header}>
+      <div style={{ ...S.header, position: 'relative' }}>
         <div style={S.headerLeft}>
           <button style={S.backBtn} onClick={onBack} title="Back">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="15 18 9 12 15 6"/>
             </svg>
           </button>
-          <span style={S.title}>Library</span>
         </div>
+        <span style={{
+          ...S.title,
+          position:  'absolute',
+          left:      '50%',
+          transform: 'translateX(-50%)',
+          whiteSpace: 'nowrap',
+        }}>
+          Kepos Public
+        </span>
       </div>
 
       {/* Body — no tab strip; public and private are separate places reached
@@ -717,6 +730,7 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
             {/* Public content */}
             <div style={S.content}>
               {loading && <div style={S.loading}>loading…</div>}
+              {!loading && activeSection === 'home'          && <PublicLandingSection onSelect={setActiveSection} />}
               {!loading && activeSection === 'architecture'  && <ArchitectureSection />}
               {!loading && activeSection === 'founding'      && <FoundingSection />}
               {!loading && activeSection === 'cases'         && <CasesSection />}
@@ -729,6 +743,126 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
           </>
         )}
 
+      </div>
+    </div>
+  )
+}
+
+// ── Public library landing page ───────────────────────────────────────────────
+
+const LANDING_SECTIONS = [
+  {
+    id:   'architecture',
+    label: 'Architecture',
+    desc:  'Operative terms, agents, and system structure',
+    icon:  (
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+        <rect x="3" y="14" width="7" height="7"/>
+        <path d="M17.5 17.5m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0"/>
+      </svg>
+    ),
+  },
+  {
+    id:   'founding',
+    label: 'Founding Document',
+    desc:  'Origins and guiding principles of the platform',
+    icon:  (
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+        <polyline points="10 9 9 9 8 9"/>
+      </svg>
+    ),
+  },
+  {
+    id:   'cases',
+    label: 'Reference Cases',
+    desc:  'Annotated conversations from the field',
+    icon:  (
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+      </svg>
+    ),
+  },
+  {
+    id:   'journals',
+    label: 'Journals',
+    desc:  "The Gardener's, Weatherman's, and Entomologist's logs",
+    icon:  (
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+      </svg>
+    ),
+  },
+  {
+    id:   'governance',
+    label: 'Governance Reports',
+    desc:  'Constitutional assessments and failure logs',
+    icon:  (
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+    ),
+  },
+]
+
+function PublicLandingSection({ onSelect }) {
+  return (
+    <div>
+      <h2 style={{ ...S.sectionTitle, marginBottom: '8px' }}>Kepos Public Library</h2>
+      <p style={{ ...S.placeholderItalic, marginBottom: '32px', color: '#4a4a4a' }}>
+        Under construction. Select a section below or use the sidebar.
+      </p>
+
+      <div style={{
+        display:               'grid',
+        gridTemplateColumns:   'repeat(auto-fill, minmax(190px, 1fr))',
+        gap:                   '14px',
+      }}>
+        {LANDING_SECTIONS.map(s => (
+          <button
+            key={s.id}
+            onClick={() => onSelect(s.id)}
+            style={{
+              display:        'flex',
+              flexDirection:  'column',
+              alignItems:     'center',
+              gap:            '14px',
+              padding:        '28px 18px 24px',
+              background:     '#181818',
+              border:         '1px solid #2a2a2a',
+              borderRadius:   '6px',
+              cursor:         'pointer',
+              color:          '#a8a39a',
+              textAlign:      'center',
+              transition:     'border-color 0.18s ease, background 0.18s ease',
+              fontFamily:     'Georgia, serif',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = '#4a5a2e'; e.currentTarget.style.background = '#1d1d1d' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.background = '#181818' }}
+          >
+            <div style={{ color: '#6b7c47' }}>{s.icon}</div>
+            <div>
+              <div style={{
+                fontSize:      '11px',
+                fontWeight:    600,
+                color:         '#c8c3b8',
+                marginBottom:  '6px',
+                fontFamily:    'monospace',
+                letterSpacing: '0.09em',
+                textTransform: 'uppercase',
+              }}>
+                {s.label}
+              </div>
+              <div style={{ fontSize: '12px', color: '#5a5a5a', lineHeight: 1.55 }}>
+                {s.desc}
+              </div>
+            </div>
+          </button>
+        ))}
       </div>
     </div>
   )
