@@ -592,6 +592,19 @@ export default function WeaverEntryScreen({
           )}
         </div>
 
+        {/* ── Canvas tap-to-dismiss — catches taps on canvas when a mode is active ── */}
+        {activeMode && (
+          <div
+            onClick={() => { setActiveMode(null); setInputText('') }}
+            style={{
+              position: 'absolute',
+              inset:    0,
+              zIndex:   4,   // above canvas, below overlay icons (8) and header (10)
+              cursor:   'default',
+            }}
+          />
+        )}
+
         {/* ── Beta context text — fades in when mode is active ── */}
         <div style={{
           position:     'absolute',
