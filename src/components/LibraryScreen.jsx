@@ -249,26 +249,17 @@ const S = {
 // ── Operative Terms ───────────────────────────────────────────────────────────
 
 const OPERATIVE_TERMS = [
-  { term: 'KEPOS', definition: 'The platform. Ancient Greek for garden. The name reflects the organizing metaphor at every level of the system.' },
-  { term: 'THE GARDENER', definition: 'The routing and cultivation layer. Routes who responds, in what order, at what weight. Tends substrate. Does not direct what grows. Based on Annie Dillard\'s constitution: attends before speaking, honest about what she doesn\'t know, does not resolve what should remain open, earns the right to speak.' },
-  { term: 'THE GOOSE', definition: 'Stateless governance signal. Listens always. Holds nothing. Honks twice — once to start a stroll (broadcasting turn count to all agents), once in response to /farmer or governance collapse. Does not interpret. Does not intervene.' },
-  { term: 'BUGS', definition: 'Immune system. Reads character responses against the constitutional layer. Character drift and false convergence are aphids. Releases ladybug signal to the Gardener when found. No voice in the conversation. Sends bugs data to the Library.' },
-  { term: 'HUX', definition: 'Border collie. Monitors for framework amplification and generic response patterns only. Barks when he sees them. Bark goes to the Gardener\'s memory. Always present. Chases the wind.' },
-  { term: 'WEATHER', definition: 'Stateless atmospheric reader. Reads each turn fresh against weather models. Wind, rain, frost, drought. Tornado watch condition only — not fully instrumented. Reports to the Weatherman at the Library. The Gardener feels conditions from lived experience, not from Weather\'s data.' },
-  { term: 'THE WEATHERMAN', definition: 'Human-led weather analysis at the Library. Analyzes Weather reports. Records in the Weatherman\'s journal. Builds understanding of atmospheric patterns across conversations over time.' },
-  { term: 'THE ENTOMOLOGIST', definition: 'Human-led character fidelity analysis at the Library. Analyzes bugs data. Reads character fidelity flags against the constitutional layer. Records in the Entomologist\'s journal.' },
-  { term: 'CONSTITUTIONAL LAYER', definition: 'Five to seven inviolable commitments per canonical character. Written and endorsed by domain experts. Bugs reads against this layer. The Entomologist analyzes against it.' },
-  { term: 'THE STROLL', definition: 'A user-metered pacing and discovery conversation with the Gardener only. Eight seasons across two cycles. Ends in dormancy. Builds substrate — not seeds. What travels forward is what the user chooses to carry into a branch.' },
-  { term: 'MIDDLE NODE', definition: 'The place where genuine emergence occurs. Produced between people with the Gardener as witness and substrate. Not synthesis. Not resolution. Arrival at a shared limit.' },
-  { term: 'WIND', definition: 'Logos. Brings pollen and tornados. Productive friction. Users and characters both generate wind. Nothing grows without it.' },
-  { term: 'RAIN', definition: 'Steady accumulation without escalation. Sustained engagement. The Gardener\'s correct response is patience.' },
-  { term: 'FROST', definition: 'Premature convergence. Primary winter risk.' },
-  { term: 'DROUGHT', definition: 'Energy leaving a conversation that should have momentum. Primary summer risk.' },
-  { term: 'TORNADO', definition: 'The loop of logos as weather. The formal apparatus spinning on itself. Watch condition only. Natural events for natural excesses.' },
-  { term: '/STROLL', definition: 'Opens a stroll conversation. User sets turn count. Gardener only. Eight seasons. Ends in dormancy.' },
-  { term: '/FARMER', definition: 'Steelman and refutation. Applied to character statements and Gardener interventions. Triggers the Goose to collect from all agents. The governance layer\'s own governance.' },
+  { term: 'KEPOS', definition: 'The platform.' },
+  { term: 'THE GARDENER', definition: 'The routing and cultivation layer. Routes who responds, in what order, at what weight.' },
+  { term: 'THE GOOSE', definition: 'Stateless governance signal. Listens always. Holds nothing. Honks twice.' },
+  { term: 'BUGS', definition: 'Immune system. Reads character responses against the constitutional layer. Character drift and false convergence are aphids.' },
+  { term: 'HUX', definition: 'Border collie. Chases the wind. Monitors for framework amplification and generic response patterns only. Barks when he hears them.' },
+  { term: 'WEATHER', definition: 'Stateless atmospheric reader. Reads each turn fresh against weather models.' },
+  { term: 'THE WEATHERMAN', definition: 'Human-led weather analysis at the Library. Analyzes Weather reports.' },
+  { term: 'THE ENTOMOLOGIST', definition: 'Human-led character fidelity analysis at the Library. Analyzes bugs data.' },
+  { term: 'CONSTITUTIONAL LAYER', definition: 'Five to seven inviolable commitments per canonical character. Written and endorsed by domain experts.' },
+  { term: '/FARMER', definition: 'Steelman and refutation. Applied to character statements and Gardener interventions. Triggers the Goose to honk, collect from all agents, and respond in thread. She holds nothing. The governance layer\'s governance.' },
   { term: '/BUTTERFLY', definition: 'Playfulness and curiosity. Lands lightly on what may have been overlooked. Most valuable in fall.' },
-  { term: '/LIBRARY', definition: 'Opens the Library. Public and private sections.' },
 ]
 
 // ── Markdown case parser ──────────────────────────────────────────────────────
@@ -320,7 +311,6 @@ const PUBLIC_SECTIONS = [
   { id: 'cases',            label: 'Reference Cases' },
   { id: 'journals',         label: 'Journals' },
   { id: 'governance',       label: 'Governance Reports' },
-  { id: 'public_convos',    label: 'Public Conversations' },
 ]
 
 const PRIVATE_SECTIONS = [
