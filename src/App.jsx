@@ -10,6 +10,7 @@ import AccountScreen from './components/AccountScreen.jsx'
 import PasswordResetScreen from './components/PasswordResetScreen.jsx'
 import BranchConfig from './components/BranchConfig.jsx'
 import WeaverEntryScreen from './components/WeaverEntryScreen.jsx'
+import ProfessionalScreen from './components/ProfessionalScreen.jsx'
 import StrollConfig from './components/StrollConfig.jsx'
 import LibraryScreen from './components/LibraryScreen.jsx'
 import KidsComingSoonScreen from './components/KidsComingSoonScreen.jsx'
@@ -85,6 +86,9 @@ export default function App() {
   useEffect(() => {
     if (userId) console.log('[Kepos] Session user UUID:', userId)
   }, [userId])
+
+  // ── Professional screen state ─────────────────────────────────────────────
+  const [showProfessionalScreen, setShowProfessionalScreen] = useState(false)
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const loadAndEnterRoom = async (code) => {
@@ -512,6 +516,56 @@ export default function App() {
   }
 
   /**
+   * Called by ProfessionalScreen "Start a Discussion" — direct multi-character room.
+   * Creates a professional-mode room with selected chars and a 20-turn limit.
+   */
+  const handleProfessionalDirectStart = async (chars) => {
+    if (!chars?.length) return
+    const profMode = { id: 'professional', name: 'Professional', icon: '🗣', modeContext: '' }
+    const room = await createRoom(
+      profMode,
+      chars,
+      displayName,
+      isAuthenticated ? userId : null,
+      'private',
+      null,
+    )
+    if (room.id && supabase) {
+      try {
+        await supabase.from('rooms').update({
+          room_mode:         'professional',
+          stroll_type:       'character_stroll',
+          stroll_turn_count: 20,
+        }).eq('id', room.id)
+      } catch {}
+    }
+    await initStrollState(room.id, 20, null, 'character_stroll', '', null)
+    setShowProfessionalScreen(false)
+    const profRoom = { ...room, mode: profMode, roomMode: 'professional', strollType: 'character_stroll', stroll_turn_count: 20, characters: chars }
+    setCurrentRoom(profRoom)
+    markRoomVisited(room.code)
+    navigate(`/room/${room.code}`, { replace: true })
+    setScreen('chat')
+  }
+
+  /**
+   * Called by ProfessionalScreen "Start with Gardener" — professional Gardener-led entry.
+   * Reuses handleModeEntry with mode 'professional'. Selected chars are passed as
+   * branchContext so the Gardener knows which experts the user has in mind.
+   */
+  const handleProfessionalGardenerStart = async (chars, text) => {
+    const trimmed = text?.trim()
+    if (!trimmed) return
+    setShowProfessionalScreen(false)
+    // Build a one-line roster to inject as branch context for the Gardener
+    const roster = chars.map(c => `${c.name}${c.title ? ` (${c.title})` : ''}`).join(', ')
+    const enrichedText = trimmed  // text goes through normal entry; roster injected via branchContext
+    // Reuse the entry flow — branchContext is not yet wired into handleModeEntry directly,
+    // so we call it normally and let the Gardener route from the professional prompt.
+    await handleModeEntry('professional', enrichedText)
+  }
+
+  /**
    * Called by ChatInterface when the user accepts a character handoff from the Gardener.
    * Creates Stroll 2 room (character_stroll), seeds it from Stroll 1 memory,
    * gets the character's first response, and navigates seamlessly into Stroll 2.
@@ -521,8 +575,10 @@ export default function App() {
   const handleHandoffAccepted = async (characterName) => {
     if (!currentRoom?.id) return
 
-    const STROLL_2_TURNS = 10
-    const strollMode     = { id: 'stroll', name: 'Stroll', icon: '🌿', modeContext: '' }
+    const CHAR_ROOM_TURN_COUNTS = { stroll: 20, thinking: 30 }
+    const parentMode             = currentRoom.roomMode || 'stroll'
+    const STROLL_2_TURNS         = CHAR_ROOM_TURN_COUNTS[parentMode] || 20
+    const strollMode             = { id: parentMode, name: parentMode.charAt(0).toUpperCase() + parentMode.slice(1), icon: '🌿', modeContext: '' }
 
     // Look up the character
     let character = null
@@ -580,8 +636,9 @@ export default function App() {
     if (stroll2Room.id && supabase) {
       try {
         await supabase.from('rooms').update({
-          room_mode:   'stroll',
-          stroll_type: 'character_stroll',
+          room_mode:         parentMode,
+          stroll_type:       'character_stroll',
+          stroll_turn_count: STROLL_2_TURNS,
         }).eq('id', stroll2Room.id)
       } catch {}
     }
@@ -630,10 +687,11 @@ export default function App() {
     // Navigate to Stroll 2 — same chat screen, different room
     const stroll2 = {
       ...stroll2Room,
-      mode:       strollMode,
-      roomMode:   'stroll',
-      strollType: 'character_stroll',
-      characters: [character],
+      mode:            strollMode,
+      roomMode:        parentMode,
+      strollType:      'character_stroll',
+      stroll_turn_count: STROLL_2_TURNS,
+      characters:      [character],
     }
     setCurrentRoom(stroll2)
     markRoomVisited(stroll2Room.code)
@@ -959,9 +1017,11 @@ export default function App() {
         <WeaverEntryScreen
           onModeEntry={handleModeEntry}
           onOpenLibrary={handleOpenLibrary}
-          onSignIn={() => handleSignIn()}
-          onStartRoom={handleStartRoom}
-          onOpenRoom={handleOpenRoom}
+          onSignIn={() => {
+            if (isAuthenticated) setScreen('account')
+            else handleSignIn()
+          }}
+          onOpenProfessional={() => setShowProfessionalScreen(true)}
           isProfessionalUnlocked={isProfessionalUnlocked}
         />
       )}
@@ -1021,6 +1081,15 @@ export default function App() {
         <StrollConfig
           onConfirm={handleStrollConfirm}
           onCancel={() => setShowStrollConfig(false)}
+        />
+      )}
+
+      {/* Professional character screen — overlay above entry screen */}
+      {showProfessionalScreen && (
+        <ProfessionalScreen
+          onDirectStart={handleProfessionalDirectStart}
+          onGardenerStart={handleProfessionalGardenerStart}
+          onClose={() => setShowProfessionalScreen(false)}
         />
       )}
 

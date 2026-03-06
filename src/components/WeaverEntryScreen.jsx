@@ -2,24 +2,24 @@
  * WeaverEntryScreen.jsx  — Kepos primary entry screen
  * ─────────────────────────────────────────────────────────────
  * Two-layer flex column filling the visual viewport:
- *   1. Canvas (flex 1): rhizome animation fills everything above input bar.
- *      Header is a transparent absolute overlay inside this layer so the
- *      canvas runs edge-to-edge and through the top bar area.
- *   2. Bottom bar (auto): mode icon row + expansion panel.
- *      Tapping an icon expands a textarea above the row for that mode.
- *      Other icons recede. Send creates a room in the selected mode.
+ *   1. Canvas (flex 1): rhizome animation fills everything above the icon bar.
+ *      Header: hamburger (top-right → account settings).
+ *      Canvas overlay icons (top-left column): My Library, Public Library,
+ *      Professional — static frosted-glass circles on the canvas.
+ *      Beta context text: fades in at canvas center-bottom when a mode is active.
  *
- * Keyboard handling: rootH tracks visualViewport.height so layout
- * fills exactly the visible area above the iOS keyboard. rootY tracks
- * vv.offsetTop so the fixed root follows iOS's visual viewport scroll.
+ *   2. Bottom bar (auto): 3 circle mode icons on one horizontal row.
+ *      Tap an icon → it slides to the far right, textarea expands from the left.
+ *      The icon at right IS the send button for that mode.
+ *      Other icons collapse (width → 0, opacity → 0).
+ *      Tap the active icon again (or press Escape) to collapse back.
  *
- * Menu: top-pill row (my library / public library / account).
- * Opens downward from the header area with a smooth slide+fade.
+ * Keyboard handling: rootH/rootY track visualViewport so layout
+ * fills exactly the visible area above the iOS keyboard.
  * ─────────────────────────────────────────────────────────────
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { useAuth } from '../contexts/AuthContext.jsx'
 
 // ── Canvas 2D Rhizome ──────────────────────────────────────────────────────────
 
@@ -30,14 +30,8 @@ const D_OLIVE = [55,  68,  36]
 function rgba(rgb, a) { return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a.toFixed(3)})` }
 
 function buildRhizome(w, h) {
-  // Wandering-thread design: no central source, no branching hierarchy.
-  // Paths start in small clusters so they run parallel for a while before
-  // diverging or crossing. Smooth angular drift (damped velocity) produces
-  // organic curves. Overlapping transparent strokes stack at crossings to
-  // mark them without any explicit node drawing.
-
   const segments  = []
-  const junctions = [] // unused; kept so renderOffscreen loop is harmless
+  const junctions = []
 
   function walkPath(startX, startY, startAngle, opts) {
     let x      = startX
@@ -48,7 +42,6 @@ function buildRhizome(w, h) {
     const { col, lw, baseA, step, nSteps } = opts
 
     for (let s = 0; s < nSteps; s++) {
-      // Smooth, damped angular drift — keeps curves gradual and organic
       dAngle += (Math.random() - 0.5) * 0.006
       dAngle *= 0.97
       angle  += dAngle
@@ -56,11 +49,10 @@ function buildRhizome(w, h) {
       const nx = x + Math.cos(angle) * step
       const ny = y + Math.sin(angle) * step
 
-      // Fade in quickly from the start, hold, fade out gently at the end
       const prog  = s / nSteps
       const alpha = baseA
-                  * Math.min(1, prog * 7)          // fast fade-in
-                  * Math.min(1, (1 - prog) * 5)    // gradual fade-out
+                  * Math.min(1, prog * 7)
+                  * Math.min(1, (1 - prog) * 5)
 
       if (s > 0 && alpha > 0.008) {
         segments.push({ x1: x, y1: y, x2: nx, y2: ny, a: alpha, lw, col })
@@ -71,10 +63,6 @@ function buildRhizome(w, h) {
     }
   }
 
-  // ── Grouped paths ──────────────────────────────────────────────────────────
-  // Each group is 2–3 paths starting close together with a shared base
-  // direction. They naturally run parallel for a while then peel apart,
-  // re-cross, or wind around each other as their dAngles diverge.
   const numGroups = 2 + Math.floor(Math.random() * 2)
 
   for (let g = 0; g < numGroups; g++) {
@@ -100,9 +88,6 @@ function buildRhizome(w, h) {
     }
   }
 
-  // ── Solitary wanderers ─────────────────────────────────────────────────────
-  // Independent paths that cut across the canvas from unrelated origins,
-  // adding extra crossings and keeping the layout from feeling symmetric.
   const nLone = 1 + Math.floor(Math.random() * 2)
   for (let i = 0; i < nLone; i++) {
     walkPath(
@@ -125,8 +110,6 @@ function buildRhizome(w, h) {
 
 function initRhizome(canvas) {
   const ctx = canvas.getContext('2d')
-  // Use the canvas element's own dimensions — it sits inside a flex child
-  // whose size is determined by the layout, not the window.
   let w = canvas.width  = canvas.offsetWidth
   let h = canvas.height = canvas.offsetHeight
 
@@ -138,7 +121,6 @@ function initRhizome(canvas) {
   let lastTs = 0
   let resizeTimer = null
 
-  // Pre-render static structure to offscreen canvas
   let offscreen = document.createElement('canvas')
   offscreen.width  = w
   offscreen.height = h
@@ -167,8 +149,6 @@ function initRhizome(canvas) {
 
   function spawnTip() {
     if (data.segments.length < 20) return
-    // Pick from the middle 80% — avoids the faded-end segments where alpha
-    // is near zero, so tips always sprout from a visible part of a path.
     const lo  = Math.floor(data.segments.length * 0.10)
     const hi  = Math.floor(data.segments.length * 0.90)
     const seg = data.segments[lo + Math.floor(Math.random() * (hi - lo))]
@@ -216,7 +196,6 @@ function initRhizome(canvas) {
     ctx.clearRect(0, 0, w, h)
     ctx.drawImage(offscreen, 0, 0)
 
-    // Draw living tips
     for (const tip of tips) {
       for (const seg of tip.segs) {
         ctx.beginPath()
@@ -240,9 +219,6 @@ function initRhizome(canvas) {
 
   raf = requestAnimationFrame(tick)
 
-  // Resize: debounced so keyboard animation doesn't trigger a rebuild on every
-  // intermediate frame. window.resize handles orientation/desktop changes;
-  // ResizeObserver handles container-driven changes (keyboard open/close).
   function resize() {
     clearTimeout(resizeTimer)
     resizeTimer = setTimeout(() => {
@@ -289,7 +265,6 @@ function ModeIcon({ id }) {
   switch (id) {
     case 'stroll': return (
       <svg {...ICON_PROPS}>
-        {/* Walking figure — side profile, mid-stride */}
         <circle cx="9" cy="2" r="1.5" />
         <line x1="8.5" y1="3.5"  x2="7.5" y2="8"   />
         <line x1="8"   y1="5.5"  x2="11"  y2="7.5"  />
@@ -298,74 +273,126 @@ function ModeIcon({ id }) {
         <line x1="7.5" y1="8"    x2="5"   y2="12"   />
       </svg>
     )
-
     case 'thinking': return (
       <svg {...ICON_PROPS}>
-        {/* Head with ascending thought-bubble chain */}
         <circle cx="6.5" cy="12" r="3" />
         <circle cx="7.5" cy="7.5" r="1.5" />
         <circle cx="9" cy="4.5" r="1" strokeWidth="1" />
         <circle cx="10.5" cy="2.5" r="0.7" fill="currentColor" stroke="none" />
       </svg>
     )
-
     case 'research': return (
       <svg {...ICON_PROPS}>
-        {/* Magnifying glass */}
         <circle cx="5.5" cy="5.5" r="4.5" />
         <line x1="8.7" y1="9" x2="13" y2="14" />
       </svg>
     )
-
-    case 'professional': return (
-      <svg {...ICON_PROPS}>
-        {/* Briefcase */}
-        <rect x="1" y="5.5" width="12" height="8.5" rx="1.5" />
-        <path d="M5 5.5 V4 Q5 2.5 7 2.5 Q9 2.5 9 4 V5.5" />
-        <line x1="1" y1="9.5" x2="13" y2="9.5" />
-      </svg>
-    )
-
     default: return null
   }
+}
+
+// ── Canvas overlay icon SVGs ───────────────────────────────────────────────────
+
+function BookSVG() {
+  return (
+    <svg width="17" height="19" viewBox="0 0 14 16" fill="none"
+      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+    >
+      <rect x="2" y="1" width="9" height="14" rx="1" />
+      <path d="M11 1 Q13 1 13 3 L13 14 Q13 15 11 15" />
+      <line x1="4.5" y1="5"   x2="8.5" y2="5"   />
+      <line x1="4.5" y1="7.5" x2="8.5" y2="7.5" />
+      <line x1="4.5" y1="10"  x2="7"   y2="10"  />
+    </svg>
+  )
+}
+
+function BuildingSVG() {
+  return (
+    <svg width="17" height="19" viewBox="0 0 14 16" fill="none"
+      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+    >
+      <polygon points="1,7 7,2 13,7" />
+      <rect x="1" y="7" width="12" height="8" />
+      <rect x="5.5" y="10" width="3" height="5" />
+      <line x1="3.5" y1="9.5"  x2="3.5" y2="12" />
+      <line x1="10.5" y1="9.5" x2="10.5" y2="12" />
+    </svg>
+  )
+}
+
+function BriefcaseSVG() {
+  return (
+    <svg width="17" height="19" viewBox="0 0 14 16" fill="none"
+      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+    >
+      <rect x="1" y="5.5" width="12" height="8.5" rx="1.5" />
+      <path d="M5 5.5 V4 Q5 2.5 7 2.5 Q9 2.5 9 4 V5.5" />
+      <line x1="1" y1="9.5" x2="13" y2="9.5" />
+    </svg>
+  )
 }
 
 // ── Mode config ────────────────────────────────────────────────────────────────
 
 const MODES_CONFIG = [
-  { id: 'stroll',       label: 'Stroll',   placeholder: 'What are you curious about?'       },
-  { id: 'thinking',     label: 'Thinking', placeholder: 'What are you working through?'      },
-  { id: 'research',     label: 'Research', placeholder: 'What are you trying to understand?' },
-  { id: 'professional', label: 'Work',     placeholder: 'What do you need to think through?' },
+  { id: 'stroll',   placeholder: 'What are you curious about?' },
+  { id: 'thinking', placeholder: 'What are you thinking?'      },
+  { id: 'research', placeholder: 'What are you researching?'   },
 ]
+
+// ── Beta context text ──────────────────────────────────────────────────────────
+
+const BETA_CONTEXT = {
+  stroll:
+    'Gardener-led orientation sequence. 8 turns. Closes with a handoff question. ' +
+    'Opens a single character room — topic-matched respondents. Twenty turn limit in character room.',
+  thinking:
+    'Gardener-led problem-framing sequence. 8 turns. Closes with a handoff question. ' +
+    'Opens a character room with 1–2 characters — topic-matched respondents. Thirty turn limit in character room.',
+  research:
+    'Gardener-led research frame. 6 turns. Closes with character selection — up to 3. ' +
+    'Opens a character room with your selection. Twenty turn limit.',
+}
+
+// ── Shared style for canvas overlay icon buttons ───────────────────────────────
+const canvasIconBtn = {
+  width:                '38px',
+  height:               '38px',
+  borderRadius:         '50%',
+  background:           'rgba(245, 241, 234, 0.80)',
+  WebkitBackdropFilter: 'blur(14px)',
+  backdropFilter:       'blur(14px)',
+  border:               '1px solid rgba(107, 124, 71, 0.20)',
+  boxShadow:            '0 1px 8px rgba(0,0,0,0.09)',
+  display:              'flex',
+  alignItems:           'center',
+  justifyContent:       'center',
+  cursor:               'pointer',
+  color:                '#4a5830',
+  padding:              0,
+  transition:           'background 0.15s ease',
+}
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function WeaverEntryScreen({
   onModeEntry,
   onOpenLibrary,
-  onSignIn,
-  onStartRoom,
-  onOpenRoom,
+  onSignIn,            // opens account settings (or sign-in if unauthenticated)
+  onOpenProfessional,  // opens the ProfessionalScreen
   isProfessionalUnlocked,
 }) {
-  const { isAuthenticated, username } = useAuth()
-
   const [activeMode,   setActiveMode]   = useState(null)
   const [inputText,    setInputText]    = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [menuOpen,     setMenuOpen]     = useState(false)
-  const [labelVisible, setLabelVisible] = useState(null)
 
-  // rootH/rootY track the visual viewport so the layout fills exactly the
-  // visible area above the keyboard on iOS Safari.
   const [rootH, setRootH] = useState(() => window.visualViewport?.height ?? window.innerHeight)
   const [rootY, setRootY] = useState(0)
 
   const canvasRef        = useRef(null)
   const canvasWrapperRef = useRef(null)
   const textareaRef      = useRef(null)
-  const longPressTimer   = useRef(null)
 
   // Lock html/body scroll while entry screen is mounted.
   useEffect(() => {
@@ -388,19 +415,13 @@ export default function WeaverEntryScreen({
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
-    const update = () => {
-      setRootH(vv.height)
-      setRootY(vv.offsetTop)
-    }
+    const update = () => { setRootH(vv.height); setRootY(vv.offsetTop) }
     vv.addEventListener('resize', update)
     vv.addEventListener('scroll', update)
-    return () => {
-      vv.removeEventListener('resize', update)
-      vv.removeEventListener('scroll', update)
-    }
+    return () => { vv.removeEventListener('resize', update); vv.removeEventListener('scroll', update) }
   }, [])
 
-  // Canvas rhizome — init after layout so canvas.offsetWidth/Height are valid.
+  // Canvas rhizome — init after layout so offsetWidth/Height are valid.
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -419,15 +440,15 @@ export default function WeaverEntryScreen({
   // Auto-focus textarea when a mode becomes active.
   useEffect(() => {
     if (activeMode && textareaRef.current) {
-      const t = setTimeout(() => textareaRef.current?.focus(), 50)
+      const t = setTimeout(() => textareaRef.current?.focus(), 60)
       return () => clearTimeout(t)
     }
   }, [activeMode])
 
+  // ── Handlers ───────────────────────────────────────────────────────────────
+
   const handleIconClick = (modeId) => {
-    if (modeId === 'professional' && !isProfessionalUnlocked) return
     if (activeMode === modeId) {
-      // Tap active icon again to collapse
       setActiveMode(null)
       setInputText('')
     } else {
@@ -450,68 +471,19 @@ export default function WeaverEntryScreen({
   }
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSubmit()
-    }
-    if (e.key === 'Escape') {
-      setActiveMode(null)
-      setInputText('')
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
+    if (e.key === 'Escape')               { setActiveMode(null); setInputText('') }
   }
 
   const handleTextareaChange = (e) => {
     setInputText(e.target.value)
     const el = e.target
     el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+    el.style.height = Math.min(el.scrollHeight, 110) + 'px'
   }
 
-  // Long-press for mobile label reveal (400 ms threshold).
-  const handleIconTouchStart = (modeId) => {
-    longPressTimer.current = setTimeout(() => setLabelVisible(modeId), 400)
-  }
-  const handleIconTouchEnd = () => {
-    clearTimeout(longPressTimer.current)
-    setTimeout(() => setLabelVisible(null), 1000)
-  }
-
-  // ── Menu items ─────────────────────────────────────────────────────────────
-  const menuItems = [
-    {
-      label:  'my library',
-      action: () => { setMenuOpen(false); onOpenLibrary?.('private', 'my_convos') },
-    },
-    {
-      label:  'public library',
-      action: () => { setMenuOpen(false); onOpenLibrary?.('public') },
-    },
-    {
-      label:  isAuthenticated ? (username || 'account') : 'account',
-      action: () => { setMenuOpen(false); onSignIn?.() },
-    },
-  ]
-
-  // ── Styles ─────────────────────────────────────────────────────────────────
-
-  const pillStyle = {
-    background:           'rgba(245, 241, 234, 0.88)',
-    WebkitBackdropFilter: 'blur(14px)',
-    backdropFilter:       'blur(14px)',
-    border:               '1px solid rgba(107, 124, 71, 0.22)',
-    borderRadius:         '20px',
-    padding:              '7px 18px',
-    cursor:               'pointer',
-    color:                '#4a5830',
-    fontFamily:           'Georgia, serif',
-    fontSize:             '14px',
-    letterSpacing:        '0.01em',
-    whiteSpace:           'nowrap',
-    boxShadow:            '0 2px 14px rgba(0,0,0,0.10)',
-    transition:           'background 0.15s, color 0.15s',
-  }
-
-  const activeModeConfig = MODES_CONFIG.find(m => m.id === activeMode)
+  const activePlaceholder = MODES_CONFIG.find(m => m.id === activeMode)?.placeholder ?? ''
+  const hasText           = Boolean(inputText.trim()) && !isSubmitting
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -529,30 +501,18 @@ export default function WeaverEntryScreen({
       overscrollBehavior: 'none',
     }}>
 
-      {/* ── Canvas layer — fills all space above input bar ── */}
+      {/* ── Canvas layer ── */}
       <div
         ref={canvasWrapperRef}
         onTouchStart={(e) => e.stopPropagation()}
-        style={{
-          flex:      1,
-          position:  'relative',
-          overflow:  'hidden',
-          minHeight: 0,
-        }}
+        style={{ flex: 1, position: 'relative', overflow: 'hidden', minHeight: 0 }}
       >
-        {/* Rhizome canvas — full size */}
         <canvas
           ref={canvasRef}
-          style={{
-            position: 'absolute',
-            inset:    0,
-            display:  'block',
-            width:    '100%',
-            height:   '100%',
-          }}
+          style={{ position: 'absolute', inset: 0, display: 'block', width: '100%', height: '100%' }}
         />
 
-        {/* ── Header overlay — transparent, floats above canvas ── */}
+        {/* ── Header — hamburger → account settings ── */}
         <div style={{
           position:       'absolute',
           top:            0,
@@ -567,12 +527,10 @@ export default function WeaverEntryScreen({
           paddingBottom:  '8px',
           zIndex:         10,
           boxSizing:      'border-box',
-          // No background — canvas shows through
         }}>
-          {/* Menu trigger — three thin lines */}
           <button
-            onClick={() => setMenuOpen(o => !o)}
-            aria-label="Menu"
+            onClick={() => onSignIn?.()}
+            aria-label="Account settings"
             style={{
               background:    'transparent',
               border:        'none',
@@ -581,7 +539,7 @@ export default function WeaverEntryScreen({
               display:       'flex',
               flexDirection: 'column',
               gap:           '5px',
-              opacity:       menuOpen ? 0.3 : 0.55,
+              opacity:       0.55,
               transition:    'opacity 0.2s',
             }}
           >
@@ -591,81 +549,104 @@ export default function WeaverEntryScreen({
           </button>
         </div>
 
-        {/* ── Pill menu — slides down from header ── */}
-        {/* Always mounted so the transition plays on close */}
+        {/* ── Canvas overlay icons — top-left column ── */}
         <div style={{
-          position:       'absolute',
-          top:            'calc(48px + env(safe-area-inset-top, 0px))',
-          left:           0,
-          right:          0,
-          zIndex:         20,
-          display:        'flex',
-          flexDirection:  'column',
-          alignItems:     'center',
-          opacity:        menuOpen ? 1 : 0,
-          transform:      menuOpen ? 'translateY(0px)' : 'translateY(-10px)',
-          pointerEvents:  menuOpen ? 'auto' : 'none',
-          transition:     'opacity 0.20s ease, transform 0.20s ease',
+          position:      'absolute',
+          top:           'calc(58px + env(safe-area-inset-top, 0px))',
+          left:          '14px',
+          display:       'flex',
+          flexDirection: 'column',
+          gap:           '9px',
+          zIndex:        8,
         }}>
-          {/* Invisible backdrop — tap anywhere outside pills to close */}
-          <div
-            onClick={() => setMenuOpen(false)}
-            style={{
-              position: 'fixed',
-              inset:    0,
-              zIndex:   -1,
-            }}
-          />
+          {/* My Library — book */}
+          <button
+            onClick={() => onOpenLibrary?.('private', 'convos')}
+            aria-label="My Library"
+            title="My Library"
+            style={canvasIconBtn}
+          >
+            <BookSVG />
+          </button>
 
-          {/* Pill row */}
-          <div style={{
-            display:        'flex',
-            gap:            '8px',
-            padding:        '0 16px',
-            flexWrap:       'wrap',
-            justifyContent: 'center',
+          {/* Public Library — building */}
+          <button
+            onClick={() => onOpenLibrary?.('public')}
+            aria-label="Public Library"
+            title="Public Library"
+            style={canvasIconBtn}
+          >
+            <BuildingSVG />
+          </button>
+
+          {/* Professional — briefcase (gated) */}
+          {isProfessionalUnlocked && (
+            <button
+              onClick={() => onOpenProfessional?.()}
+              aria-label="Professional"
+              title="Professional"
+              style={canvasIconBtn}
+            >
+              <BriefcaseSVG />
+            </button>
+          )}
+        </div>
+
+        {/* ── Beta context text — fades in when mode is active ── */}
+        <div style={{
+          position:     'absolute',
+          bottom:       '22px',
+          left:         '64px',   // clear of the canvas icon column
+          right:        '20px',
+          opacity:      activeMode ? 1 : 0,
+          transition:   'opacity 0.30s ease',
+          pointerEvents:'none',
+          zIndex:       5,
+        }}>
+          <p style={{
+            margin:        0,
+            fontFamily:    'Georgia, serif',
+            fontSize:      '11px',
+            lineHeight:    '1.70',
+            color:         '#4a5830',
+            opacity:       0.60,
+            letterSpacing: '0.01em',
           }}>
-            {menuItems.map(item => (
-              <button
-                key={item.label}
-                onClick={item.action}
-                style={pillStyle}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,241,234,0.97)'; e.currentTarget.style.color = '#3a4a1a' }}
-                onMouseLeave={e => { e.currentTarget.style.background = pillStyle.background; e.currentTarget.style.color = pillStyle.color }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+            {activeMode && BETA_CONTEXT[activeMode]}
+          </p>
         </div>
 
       </div>
       {/* end canvas layer */}
 
-      {/* ── Expansion panel — slides up when a mode is active ── */}
+      {/* ── Bottom bar — 3 circle icons, in-row expansion ── */}
       <div style={{
-        flexShrink:  0,
-        overflow:    'hidden',
-        maxHeight:   activeMode ? '180px' : '0px',
-        opacity:     activeMode ? 1 : 0,
-        paddingTop:  activeMode ? '8px' : '0',
-        paddingLeft: '20px',
-        paddingRight:'20px',
-        transition:  'max-height 0.28s ease, opacity 0.22s ease, padding-top 0.28s ease',
+        flexShrink:    0,
+        paddingTop:    '10px',
+        paddingBottom: 'max(18px, env(safe-area-inset-bottom))',
       }}>
-        <div style={{ maxWidth: '520px', margin: '0 auto' }}>
-          {/* Frosted-glass pill */}
+        <div style={{
+          display:        'flex',
+          alignItems:     'center',
+          justifyContent: activeMode ? 'flex-start' : 'center',
+          padding:        '0 16px',
+          gap:            activeMode ? '0' : '14px',
+          height:         '54px',
+          transition:     'gap 0.22s ease',
+        }}>
+
+          {/* ── Textarea — grows from the left when active ── */}
           <div style={{
-            display:              'flex',
-            alignItems:           'flex-end',
-            gap:                  '10px',
-            background:           'rgba(245, 241, 234, 0.82)',
-            WebkitBackdropFilter: 'blur(12px)',
-            backdropFilter:       'blur(12px)',
-            border:               '1px solid rgba(107, 124, 71, 0.18)',
-            borderRadius:         '14px',
-            padding:              '10px 12px',
-            boxShadow:            '0 2px 16px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)',
+            flex:        activeMode ? 1 : 0,
+            maxWidth:    activeMode ? '9999px' : 0,
+            overflow:    'hidden',
+            opacity:     activeMode ? 1 : 0,
+            minWidth:    0,
+            display:     'flex',
+            alignItems:  'center',
+            paddingRight: activeMode ? '10px' : '0',
+            transition:  'flex 0.28s ease, max-width 0.28s ease, opacity 0.22s ease, padding-right 0.22s ease',
+            boxSizing:   'border-box',
           }}>
             <textarea
               ref={textareaRef}
@@ -673,136 +654,83 @@ export default function WeaverEntryScreen({
               value={inputText}
               onChange={handleTextareaChange}
               onKeyDown={handleKeyDown}
-              placeholder={activeModeConfig?.placeholder ?? ''}
+              placeholder={activePlaceholder}
               disabled={isSubmitting}
               rows={1}
               style={{
-                flex:       1,
+                width:      '100%',
                 background: 'transparent',
                 border:     'none',
                 outline:    'none',
                 resize:     'none',
                 color:      '#4a5830',
                 fontFamily: 'Georgia, serif',
-                fontSize:   '16px',  // 16px: prevents iOS auto-zoom on focus
+                fontSize:   '16px',
                 lineHeight: '1.5',
                 padding:    '2px 0',
                 minHeight:  '24px',
-                maxHeight:  '120px',
+                maxHeight:  '110px',
                 overflow:   'auto',
                 caretColor: '#4a5a24',
               }}
             />
-            <button
-              onClick={handleSubmit}
-              disabled={!inputText.trim() || isSubmitting}
-              aria-label="Begin"
-              style={{
-                flexShrink:     0,
-                width:          '32px',
-                height:         '32px',
-                background:     inputText.trim() && !isSubmitting ? '#4a5a24' : 'rgba(74, 90, 36, 0.12)',
-                border:         'none',
-                borderRadius:   '8px',
-                cursor:         inputText.trim() && !isSubmitting ? 'pointer' : 'default',
-                display:        'flex',
-                alignItems:     'center',
-                justifyContent: 'center',
-                transition:     'background 0.2s',
-                color:          inputText.trim() && !isSubmitting ? '#f5f2ec' : '#8a9a70',
-                fontSize:       '14px',
-              }}
-            >
-              {isSubmitting ? (
-                <span style={{ opacity: 0.5, fontSize: '12px' }}>·</span>
-              ) : (
-                // Walking figure — side profile, mid-stride
-                <svg width="14" height="16" viewBox="0 0 14 16" fill="none"
-                  stroke="currentColor" strokeWidth="1.5"
-                  strokeLinecap="round" strokeLinejoin="round"
-                >
-                  <circle cx="9" cy="2" r="1.5" />
-                  <line x1="8.5" y1="3.5" x2="7.5" y2="8" />
-                  <line x1="8"   y1="5.5" x2="11"  y2="7.5" />
-                  <line x1="8"   y1="5.5" x2="5.5" y2="6.5" />
-                  <line x1="7.5" y1="8"   x2="10"  y2="13" />
-                  <line x1="7.5" y1="8"   x2="5"   y2="12" />
-                </svg>
-              )}
-            </button>
           </div>
-        </div>
-      </div>
 
-      {/* ── Mode icons row ── */}
-      <div style={{
-        flexShrink:    0,
-        paddingTop:    '10px',
-        paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
-      }}>
-        <div style={{
-          display:        'flex',
-          justifyContent: 'center',
-          gap:            '12px',
-          padding:        '0 20px',
-        }}>
+          {/* ── 3 circle mode buttons — active one slides right and becomes send ── */}
           {MODES_CONFIG.map(mode => {
-            const isGated   = mode.id === 'professional' && !isProfessionalUnlocked
             const isActive  = activeMode === mode.id
             const isReceded = activeMode !== null && !isActive
 
             return (
-              <button
+              // Outer wrapper collapses width when receded (also collapses gap contribution)
+              <div
                 key={mode.id}
-                onClick={() => handleIconClick(mode.id)}
-                onMouseEnter={() => !isGated && setLabelVisible(mode.id)}
-                onMouseLeave={() => setLabelVisible(null)}
-                onTouchStart={() => handleIconTouchStart(mode.id)}
-                onTouchEnd={handleIconTouchEnd}
-                disabled={isGated}
-                aria-label={mode.label}
                 style={{
-                  width:                '64px',
-                  height:               '70px',
-                  display:              'flex',
-                  flexDirection:        'column',
-                  alignItems:           'center',
-                  justifyContent:       'center',
-                  gap:                  '5px',
-                  background:           isActive
-                                          ? 'rgba(74, 90, 36, 0.15)'
-                                          : 'rgba(245, 241, 234, 0.72)',
-                  WebkitBackdropFilter: 'blur(10px)',
-                  backdropFilter:       'blur(10px)',
-                  border:               isActive
-                                          ? '1px solid rgba(107, 124, 71, 0.38)'
-                                          : '1px solid rgba(107, 124, 71, 0.16)',
-                  borderRadius:         '16px',
-                  cursor:               isGated ? 'not-allowed' : 'pointer',
-                  transition:           'background 0.18s, border 0.18s, opacity 0.20s, transform 0.20s, filter 0.18s',
-                  opacity:              isGated ? 0.25 : isReceded ? 0.32 : 1,
-                  transform:            isReceded ? 'scale(0.87)' : 'scale(1)',
-                  filter:               isGated ? 'grayscale(1)' : 'none',
-                  color:                '#4a5830',
-                  padding:              0,
+                  flexShrink: 0,
+                  width:      isReceded ? 0 : '48px',
+                  overflow:   'hidden',
+                  order:      isActive ? 999 : 0,   // push active icon to the end (rightmost)
+                  marginLeft: isActive && activeMode ? 'auto' : '0',
+                  transition: 'width 0.26s ease',
                 }}
               >
-                <ModeIcon id={mode.id} />
-                <span style={{
-                  fontSize:      '10px',
-                  fontFamily:    'Georgia, serif',
-                  color:         '#4a5830',
-                  opacity:       labelVisible === mode.id ? 0.75 : 0,
-                  transition:    'opacity 0.15s',
-                  letterSpacing: '0.02em',
-                  lineHeight:    1,
-                  userSelect:    'none',
-                }}>
-                  {mode.label}
-                </span>
-              </button>
+                <button
+                  onClick={() => isActive ? handleSubmit() : handleIconClick(mode.id)}
+                  aria-label={isActive ? `Send — ${mode.id}` : mode.id}
+                  disabled={isActive && isSubmitting}
+                  style={{
+                    width:                '48px',
+                    height:               '48px',
+                    borderRadius:         '50%',
+                    flexShrink:           0,
+                    display:              'flex',
+                    alignItems:           'center',
+                    justifyContent:       'center',
+                    // Active + has text: solid olive fill = clear send affordance
+                    background:           isActive
+                                            ? (hasText ? '#4a5a24' : 'rgba(74, 90, 36, 0.22)')
+                                            : 'rgba(245, 241, 234, 0.85)',
+                    WebkitBackdropFilter: 'blur(12px)',
+                    backdropFilter:       'blur(12px)',
+                    border:               `1px solid rgba(107, 124, 71, ${isActive ? 0.48 : 0.22})`,
+                    boxShadow:            '0 1px 8px rgba(0,0,0,0.09)',
+                    color:                isActive && hasText ? '#f5f2ec' : '#4a5830',
+                    cursor:               isActive && isSubmitting ? 'default' : 'pointer',
+                    padding:              0,
+                    transition:           'background 0.20s ease, color 0.20s ease, border 0.18s ease, box-shadow 0.18s ease',
+                    pointerEvents:        isReceded ? 'none' : 'auto',
+                  }}
+                >
+                  {isSubmitting && isActive ? (
+                    <span style={{ opacity: 0.5, fontSize: '14px', fontFamily: 'Georgia, serif' }}>·</span>
+                  ) : (
+                    <ModeIcon id={mode.id} />
+                  )}
+                </button>
+              </div>
             )
           })}
+
         </div>
       </div>
 
