@@ -17,7 +17,7 @@
  *   My Conversations — user's private rooms; dormant strolls show Branch / Continue
  *   Notes — CRUD for notebook_entries
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { fetchMyRooms, fetchAllRooms } from '../utils/roomUtils.js'
@@ -324,9 +324,33 @@ const PUBLIC_SECTIONS = [
 ]
 
 const PRIVATE_SECTIONS = [
-  { id: 'my_convos',  label: 'My Conversations' },
-  { id: 'notebook',   label: 'Notes' },
+  { id: 'convos',      label: 'Conversations' },
+  { id: 'discussions', label: 'Discussions' },
+  { id: 'research',    label: 'Research' },
+  { id: 'work',        label: 'Work' },
+  { id: 'kids',        label: 'Kepos for Kids', kids: true },
+  { id: 'notebook',    label: 'Notes' },
 ]
+
+// Sections that show filtered user rooms
+const MODE_SECTIONS = ['convos', 'discussions', 'research', 'work', 'kids']
+
+// Per-mode room filter predicates
+const MODE_FILTER = {
+  convos:      r => !r.isKidsMode && (r.roomMode === 'stroll' || !r.roomMode || r.mode?.id === 'stroll'),
+  discussions: r => r.roomMode === 'thinking',
+  research:    r => r.roomMode === 'research',
+  work:        r => r.roomMode === 'professional',
+  kids:        r => r.isKidsMode === true,
+}
+
+const MODE_EMPTY = {
+  convos:      'No strolls yet.',
+  discussions: 'No thinking sessions yet.',
+  research:    'No research sessions yet.',
+  work:        'No work sessions yet.',
+  kids:        'No Kepos for Kids sessions yet.',
+}
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -337,12 +361,16 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
   const [activeSection, setActiveSection] = useState(
     initialTab === 'public'
       ? 'architecture'
-      : (initialSection || 'my_convos')
+      : (initialSection === 'my_convos' ? 'convos' : (initialSection || 'convos'))
   )
   const [data,          setData]          = useState({})
   const [loading,       setLoading]       = useState(false)
   const [isMobile,      setIsMobile]      = useState(() => window.innerWidth < 768)
   const [sidebarOpen,   setSidebarOpen]   = useState(() => window.innerWidth >= 768)
+
+  // Track which userId's rooms are already loaded to avoid redundant fetches
+  // when the user switches between mode tabs (convos / discussions / research …)
+  const roomsLoadedForUser = useRef(null)
 
   // Section changes also load data
   useEffect(() => {
@@ -363,7 +391,7 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
   // Switch tab → land on first section for that tab
   const handleTabSwitch = (tab) => {
     setActiveTab(tab)
-    const firstSection = tab === 'public' ? 'architecture' : 'my_convos'
+    const firstSection = tab === 'public' ? 'architecture' : 'convos'
     setActiveSection(firstSection)
   }
 
@@ -390,7 +418,13 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
       } else if (section === 'public_convos') {
         const rooms = await fetchAllRooms()
         setData(d => ({ ...d, public_convos: rooms || [] }))
-      } else if (section === 'my_convos' && userId) {
+      } else if ((MODE_SECTIONS.includes(section) || section === 'my_convos') && userId) {
+        // Skip re-fetch if rooms are already loaded for this user
+        if (roomsLoadedForUser.current === userId) {
+          setLoading(false)
+          return
+        }
+
         const rooms = await fetchMyRooms([], userId)
 
         // For dormant stroll rooms, fetch stroll_state to get turns ratio signal
@@ -408,6 +442,7 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
           }
         }
 
+        roomsLoadedForUser.current = userId
         setData(d => ({ ...d, my_convos: rooms || [], strollStateMap }))
       } else if (section === 'notebook' && userId) {
         const { data: rows } = await supabase.from('notebook_entries').select('*').eq('user_id', userId).order('created_at', { ascending: false })
@@ -422,6 +457,14 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
   // ── Private library — warm entry-screen palette ───────────────────────────
   // Rendered as an entirely separate tree so the two places feel distinct.
   if (activeTab === 'private') {
+    // Pre-compute mode-filtered rooms for the active section
+    const allRooms       = data.my_convos || []
+    const strollStateMap = data.strollStateMap || {}
+    const isModeSection  = MODE_SECTIONS.includes(activeSection)
+    const filteredRooms  = isModeSection ? allRooms.filter(MODE_FILTER[activeSection] || (() => false)) : []
+    const emptyLabel     = MODE_EMPTY[activeSection] || 'No conversations yet.'
+    const isKidsSection  = activeSection === 'kids'
+
     return (
       <div style={{
         position:      'fixed',
@@ -475,47 +518,60 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
           </span>
         </div>
 
-        {/* Conversations / Notes inline toggle */}
+        {/* Section tabs — scrollable row */}
         <div style={{
-          display:      'flex',
-          gap:          0,
-          paddingLeft:  '24px',
-          borderBottom: '1px solid rgba(107, 124, 71, 0.14)',
-          flexShrink:   0,
+          display:         'flex',
+          gap:             0,
+          borderBottom:    '1px solid rgba(107, 124, 71, 0.14)',
+          flexShrink:      0,
+          overflowX:       'auto',
+          scrollbarWidth:  'none', // Firefox
+          WebkitOverflowScrolling: 'touch',
+          paddingLeft:     '16px',
         }}>
-          {PRIVATE_SECTIONS.map(s => (
-            <button
-              key={s.id}
-              onClick={() => setActiveSection(s.id)}
-              style={{
-                background:    'none',
-                border:        'none',
-                borderBottom:  activeSection === s.id
-                                 ? '2px solid #6b7c47'
-                                 : '2px solid transparent',
-                color:         activeSection === s.id ? '#4a5830' : '#a09880',
-                fontFamily:    'Georgia, serif',
-                fontSize:      '13px',
-                padding:       '12px 20px 11px 0',
-                cursor:        'pointer',
-                marginBottom:  '-1px',
-                transition:    'color 0.15s',
-                letterSpacing: '0.01em',
-              }}
-            >
-              {s.label}
-            </button>
-          ))}
+          {PRIVATE_SECTIONS.map(s => {
+            const isActive   = activeSection === s.id
+            const isKidsTab  = s.kids === true
+            const activeColor  = isKidsTab ? '#7a5520' : '#4a5830'
+            const activeBorder = isKidsTab ? '#c49a3a' : '#6b7c47'
+            return (
+              <button
+                key={s.id}
+                onClick={() => setActiveSection(s.id)}
+                style={{
+                  background:    'none',
+                  border:        'none',
+                  borderBottom:  isActive
+                                   ? `2px solid ${activeBorder}`
+                                   : '2px solid transparent',
+                  color:         isActive ? activeColor : '#a09880',
+                  fontFamily:    'Georgia, serif',
+                  fontSize:      '13px',
+                  padding:       '12px 16px 11px',
+                  cursor:        'pointer',
+                  marginBottom:  '-1px',
+                  transition:    'color 0.15s',
+                  letterSpacing: '0.01em',
+                  whiteSpace:    'nowrap',
+                  flexShrink:    0,
+                }}
+              >
+                {s.label}
+              </button>
+            )
+          })}
         </div>
 
-        {/* Content area */}
+        {/* Content area — kids section gets subtle amber tint */}
         <div style={{
-          flex:      1,
-          overflowY: 'auto',
-          padding:   '24px 24px 48px',
-          maxWidth:  '640px',
-          width:     '100%',
-          boxSizing: 'border-box',
+          flex:       1,
+          overflowY:  'auto',
+          padding:    '24px 24px 48px',
+          maxWidth:   '640px',
+          width:      '100%',
+          boxSizing:  'border-box',
+          background: isKidsSection ? 'rgba(196, 154, 58, 0.04)' : 'transparent',
+          transition: 'background 0.25s ease',
         }}>
           {loading && (
             <div style={{ color: '#a09880', fontSize: '13px', padding: '20px 0', opacity: 0.7 }}>
@@ -523,14 +579,16 @@ export default function LibraryScreen({ onBack, onOpenRoom, onOpenBranchConfig, 
             </div>
           )}
 
-          {!loading && activeSection === 'my_convos' && (
+          {!loading && isModeSection && (
             <MyConvosSection
-              rooms={data.my_convos}
-              strollStateMap={data.strollStateMap || {}}
+              rooms={filteredRooms}
+              strollStateMap={strollStateMap}
               onOpenRoom={onOpenRoom}
               onOpenBranchConfig={onOpenBranchConfig}
               onContinueStroll={onContinueStroll}
               warm={true}
+              kids={isKidsSection}
+              emptyLabel={emptyLabel}
             />
           )}
           {!loading && activeSection === 'notebook' && (
@@ -916,22 +974,22 @@ function PublicConvosSection({ rooms, onOpenRoom }) {
 
 // ── My Conversations section ──────────────────────────────────────────────────
 
-function MyConvosSection({ rooms, strollStateMap = {}, onOpenRoom, onOpenBranchConfig, onContinueStroll, warm = false }) {
-  // Palette switches between warm (private library) and dark (public library)
-  const divider     = warm ? 'rgba(107, 124, 71, 0.12)' : '#1e1e1e'
-  const nameColor   = warm ? '#4a5830'                  : '#8a9a70'
-  const tsColor     = warm ? '#a09880'                  : '#4a4a4a'
-  const previewColor= warm ? '#8a9a70'                  : '#4a4a4a'
-  const hoverBg     = warm ? 'rgba(107, 124, 71, 0.05)' : 'rgba(255,255,255,0.02)'
+function MyConvosSection({ rooms, strollStateMap = {}, onOpenRoom, onOpenBranchConfig, onContinueStroll, warm = false, kids = false, emptyLabel = 'No conversations yet.' }) {
+  // Palette: kids (amber) > warm (olive) > dark (library)
+  const divider     = kids ? 'rgba(180, 130, 50, 0.14)'  : warm ? 'rgba(107, 124, 71, 0.12)' : '#1e1e1e'
+  const nameColor   = kids ? '#7a5520'                   : warm ? '#4a5830'                  : '#8a9a70'
+  const tsColor     = kids ? '#b8906a'                   : warm ? '#a09880'                  : '#4a4a4a'
+  const previewColor= kids ? '#9a7850'                   : warm ? '#8a9a70'                  : '#4a4a4a'
+  const hoverBg     = kids ? 'rgba(196, 154, 58, 0.06)'  : warm ? 'rgba(107, 124, 71, 0.05)' : 'rgba(255,255,255,0.02)'
 
   if (!rooms) return (
-    <div style={{ color: warm ? '#a09880' : '#3a3a3a', fontFamily: warm ? 'Georgia, serif' : 'monospace', fontSize: '13px', padding: '20px 0', opacity: 0.7 }}>
+    <div style={{ color: kids ? '#b8906a' : warm ? '#a09880' : '#3a3a3a', fontFamily: 'Georgia, serif', fontSize: '13px', padding: '20px 0', opacity: 0.7 }}>
       loading…
     </div>
   )
   if (rooms.length === 0) return (
-    <div style={{ color: warm ? '#a09880' : '#3a3a3a', fontFamily: warm ? 'Georgia, serif' : 'monospace', fontSize: '13px', fontStyle: 'italic', padding: '12px 0', opacity: 0.7 }}>
-      No conversations yet.
+    <div style={{ color: kids ? '#b8906a' : warm ? '#a09880' : '#3a3a3a', fontFamily: 'Georgia, serif', fontSize: '13px', fontStyle: 'italic', padding: '12px 0', opacity: 0.7 }}>
+      {emptyLabel}
     </div>
   )
 
