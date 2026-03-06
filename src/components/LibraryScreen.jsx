@@ -316,7 +316,7 @@ const PRIVATE_SECTIONS = [
   { id: 'research',    label: 'Research' },
   { id: 'work',        label: 'Work' },
   { id: 'kids',        label: 'Kepos for Kids', kids: true },
-  { id: 'notebook',    label: 'Notes' },
+  // Notes is accessible via the pencil icon on the entry screen
 ]
 
 // Sections that show filtered user rooms

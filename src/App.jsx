@@ -1023,6 +1023,7 @@ export default function App() {
           }}
           onOpenProfessional={() => setShowProfessionalScreen(true)}
           isProfessionalUnlocked={isProfessionalUnlocked}
+          isAuthenticated={isAuthenticated}
         />
       )}
 

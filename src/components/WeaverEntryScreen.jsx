@@ -333,11 +333,32 @@ function BriefcaseSVG() {
   )
 }
 
+function NoteSVG() {
+  return (
+    <svg width="17" height="19" viewBox="0 0 14 16" fill="none"
+      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+    >
+      <path d="M9.5 1.5 L12.5 4.5 L5.5 11.5 L2 12 L2.5 8.5 Z" />
+      <line x1="7.5" y1="3.5" x2="10.5" y2="6.5" />
+    </svg>
+  )
+}
+
+function KidsSVG() {
+  return (
+    <svg width="17" height="19" viewBox="0 0 14 16" fill="none"
+      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+    >
+      <polygon points="7,1.5 8.8,5.8 13.5,5.8 9.6,8.7 11.1,13 7,10.2 2.9,13 4.4,8.7 0.5,5.8 5.2,5.8" />
+    </svg>
+  )
+}
+
 // ── Mode config ────────────────────────────────────────────────────────────────
 
 const MODES_CONFIG = [
   { id: 'stroll',   placeholder: 'What are you curious about?' },
-  { id: 'thinking', placeholder: 'What are you thinking?'      },
+  { id: 'thinking', placeholder: "What's up?"                  },
   { id: 'research', placeholder: 'What are you researching?'   },
 ]
 
@@ -345,17 +366,17 @@ const MODES_CONFIG = [
 
 const BETA_CONTEXT = {
   stroll:
-    'Bring something you are curious about! ' +
-    'Gardener-led orientation sequence. 8 turns. Closes with a handoff question. ' +
-    'Opens a single character room — topic-matched respondents. Twenty turn limit in character room.',
+    'Take a wander with the gardener. ' +
+    'Eight turns, opens a character room with one topic matched character. ' +
+    'Twenty turn limit in character room.',
   thinking:
-    'Bring something you are curious about! ' +
-    'Gardener-led problem-framing sequence. 8 turns. Closes with a handoff question. ' +
-    'Opens a character room with 1–2 characters — topic-matched respondents. Thirty turn limit in character room.',
+    'Bring a topic and a direction. ' +
+    'Eight turns, opens a character room with one to two topic matched characters. ' +
+    'Thirty turn limit in character room.',
   research:
-    'Bring something you are curious about! ' +
-    'Gardener-led research frame. 6 turns. Closes with character selection — up to 3. ' +
-    'Opens a character room with your selection. Twenty turn limit.',
+    'Build a research team. ' +
+    'Six turns, opens a character room with up to three characters of your selection. ' +
+    'Twenty turn limit in character room.',
 }
 
 // ── Shared style for canvas overlay icon buttons ───────────────────────────────
@@ -385,6 +406,7 @@ export default function WeaverEntryScreen({
   onSignIn,            // opens account settings (or sign-in if unauthenticated)
   onOpenProfessional,  // opens the ProfessionalScreen
   isProfessionalUnlocked,
+  isAuthenticated,     // gates Notes and Kids icons (private sections)
 }) {
   const [activeMode,   setActiveMode]   = useState(null)
   const [inputText,    setInputText]    = useState('')
@@ -571,6 +593,30 @@ export default function WeaverEntryScreen({
           >
             <BookSVG />
           </button>
+
+          {/* Notes — pencil (private, gated) */}
+          {isAuthenticated && (
+            <button
+              onClick={() => onOpenLibrary?.('private', 'notebook')}
+              aria-label="Notes"
+              title="Notes"
+              style={canvasIconBtn}
+            >
+              <NoteSVG />
+            </button>
+          )}
+
+          {/* Kepos for Kids — star (private, gated) */}
+          {isAuthenticated && (
+            <button
+              onClick={() => onOpenLibrary?.('private', 'kids')}
+              aria-label="Kepos for Kids"
+              title="Kepos for Kids"
+              style={canvasIconBtn}
+            >
+              <KidsSVG />
+            </button>
+          )}
 
           {/* Public Library — building */}
           <button
